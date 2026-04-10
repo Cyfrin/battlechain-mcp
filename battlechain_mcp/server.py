@@ -163,15 +163,32 @@ def _subprocess_env() -> dict[str, str]:
 
 # ── Forge/cast runners ────────────────────────────────────────────────────────
 
+def _wsl_browser_script() -> str:
+    """
+    Write a tiny shell script that opens a URL in the Windows default browser
+    from inside WSL, and return its path.  Uses wslview if available (from the
+    wslu package), otherwise falls back to explorer.exe via its full WSL path.
+    """
+    script_path = Path("/tmp/battlechain-browser.sh")
+    wslview = subprocess.run(["which", "wslview"], capture_output=True, text=True)
+    if wslview.returncode == 0:
+        opener = "wslview"
+    else:
+        opener = "/mnt/c/Windows/explorer.exe"
+    script_path.write_text(f'#!/bin/sh\n{opener} "$1"\n')
+    script_path.chmod(0o755)
+    return str(script_path)
+
+
 def forge_browser(script_path: str) -> tuple[int, str]:
     """Run a forge script with --browser wallet signing.
     Blocks until the user approves all MetaMask transactions."""
     cmd = ["forge", "script", script_path, *FORGE_BROWSER_FLAGS]
     env = _subprocess_env()
-    # On WSL, forge can't auto-detect a browser. Point it at explorer.exe which
-    # opens the Windows default browser via WSL/Windows interop.
+    # On WSL, forge can't auto-detect a browser. Write a wrapper script that
+    # opens the URL in the Windows default browser via WSL/Windows interop.
     if _is_wsl() and "BROWSER" not in env:
-        env["BROWSER"] = "explorer.exe"
+        env["BROWSER"] = _wsl_browser_script()
     result = subprocess.run(
         cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=env
     )
