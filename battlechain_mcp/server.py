@@ -80,6 +80,13 @@ def _git_available() -> bool:
     return result.returncode == 0
 
 
+def _is_wsl() -> bool:
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except Exception:
+        return False
+
+
 def _glibc_version() -> tuple[int, int] | None:
     """Return the host glibc version as (major, minor), or None if undetectable."""
     result = subprocess.run(["ldd", "--version"], capture_output=True, text=True)
@@ -160,8 +167,13 @@ def forge_browser(script_path: str) -> tuple[int, str]:
     """Run a forge script with --browser wallet signing.
     Blocks until the user approves all MetaMask transactions."""
     cmd = ["forge", "script", script_path, *FORGE_BROWSER_FLAGS]
+    env = _subprocess_env()
+    # On WSL, forge can't auto-detect a browser. Point it at explorer.exe which
+    # opens the Windows default browser via WSL/Windows interop.
+    if _is_wsl() and "BROWSER" not in env:
+        env["BROWSER"] = "explorer.exe"
     result = subprocess.run(
-        cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=_subprocess_env()
+        cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=env
     )
     return result.returncode, result.stdout + result.stderr
 
