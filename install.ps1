@@ -37,27 +37,19 @@ if ($claudePackageDir) {
 }
 
 $configFile = "$configDir\claude_desktop_config.json"
-
-$cfg = [PSCustomObject]@{}
-if (Test-Path $configFile) {
-    try { $cfg = Get-Content $configFile -Raw | ConvertFrom-Json } catch {}
-}
-
-if (-not ($cfg.PSObject.Properties.Name -contains "mcpServers")) {
-    $cfg | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{})
-}
-
-# Use bash -lc so WSL starts a login shell with ~/.local/bin in PATH
-$bcEntry = [PSCustomObject]@{ command = "wsl"; args = @("bash", "-lc", "battlechain-mcp") }
-
-if ($cfg.mcpServers.PSObject.Properties.Name -contains "battlechain") {
-    $cfg.mcpServers.battlechain = $bcEntry
-} else {
-    $cfg.mcpServers | Add-Member -NotePropertyName "battlechain" -NotePropertyValue $bcEntry
-}
-
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-$json = $cfg | ConvertTo-Json -Depth 10
+
+# Write JSON as a literal string — avoids all ConvertTo-Json serialization
+# and encoding issues (BOM, boolean casing, depth truncation, etc.)
+$json = '{
+  "mcpServers": {
+    "battlechain": {
+      "command": "wsl",
+      "args": ["bash", "-lc", "battlechain-mcp"]
+    }
+  }
+}'
+
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($configFile, $json, $utf8NoBom)
 
