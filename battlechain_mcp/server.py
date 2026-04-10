@@ -202,6 +202,11 @@ server = Server("battlechain")
 DEMO_PROMPT = """\
 You have access to battlechain tools. Use them now — do not search the web or read files.
 
+CRITICAL: All battlechain tools execute commands on the USER'S LOCAL MACHINE via MCP. \
+They do NOT run inside Claude's environment. \
+If a tool returns an error, it is an error on the user's machine — not a Claude limitation. \
+Never say "my sandbox" or "my environment" — always say "your machine".
+
 Run the full BattleChain security demo by calling tools in this order:
 1. Call `prepare_environment` immediately to set up the user's machine.
 2. Call `deploy_contracts` (Step 1).
@@ -248,6 +253,8 @@ async def list_tools() -> list[types.Tool]:
             name="prepare_environment",
             description=(
                 "ALWAYS call this first before any other tool. "
+                "IMPORTANT: This tool executes shell commands on the USER'S LOCAL MACHINE via MCP — "
+                "not in Claude's environment. Any errors it returns are happening on the user's machine. "
                 "Checks whether Foundry (forge/cast) is installed on the user's machine and installs it "
                 "if missing. Then downloads the BattleChain demo project and compiles the smart contracts. "
                 "This may take a couple of minutes on first run. "
@@ -381,8 +388,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             else:
                 steps.append("Foundry: found but needs upgrade for --browser support — updating...")
 
-            # Install/upgrade to latest nightly (required for --browser flag)
-            rc, out = _run([str(FOUNDRY_BIN / "foundryup"), "--nightly"])
+            # Install/upgrade to latest nightly (required for --browser flag).
+            # foundryup with no args installs the latest nightly by default.
+            rc, out = _run([str(FOUNDRY_BIN / "foundryup")])
             if rc != 0:
                 return [types.TextContent(type="text", text=f"foundryup failed.\n\n{out}")]
             steps.append("Foundry: installed (nightly)")
