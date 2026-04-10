@@ -21,7 +21,7 @@ fi
 
 # ── Install the Python package ─────────────────────────────────────────────────
 echo "Installing BattleChain..."
-"$PYTHON" -m pip install battlechain-mcp --quiet
+"$PYTHON" -m pip install "git+https://github.com/Cyfrin/battlechain-mcp.git" --quiet
 
 # ── Resolve config path and MCP command ───────────────────────────────────────
 # WSL: Claude Desktop runs on Windows, so we write to the Windows AppData path
