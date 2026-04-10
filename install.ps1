@@ -7,17 +7,17 @@ Write-Host "Installing BattleChain..."
 
 # ── Install Python package inside WSL ─────────────────────────────────────────
 # Run inside bash with 2>/dev/null so stderr never reaches PowerShell.
-# Calling wsl -- python3.x directly leaks stderr as NativeCommandError.
-$installed = $false
+# Track which Python version succeeds so we can use it in the config.
+$pythonVersion = $null
 foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13")) {
     wsl -- bash -c "$py -m pip install 'git+https://github.com/Cyfrin/battlechain-mcp.git' --quiet 2>/dev/null"
     if ($LASTEXITCODE -eq 0) {
-        $installed = $true
+        $pythonVersion = $py
         break
     }
 }
 
-if (-not $installed) {
+if (-not $pythonVersion) {
     Write-Host "ERROR: Could not install the package in WSL."
     Write-Host "Make sure WSL is running and has Python 3.10+ installed."
     exit 1
@@ -39,16 +39,18 @@ if ($claudePackageDir) {
 $configFile = "$configDir\claude_desktop_config.json"
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 
-# Write JSON as a literal string — avoids all ConvertTo-Json serialization
-# and encoding issues (BOM, boolean casing, depth truncation, etc.)
-$json = '{
+# Invoke Python directly by version — avoids login shell PATH issues entirely.
+# ($pythonVersion is e.g. "python3.11", always in /usr/bin on standard WSL)
+$json = @"
+{
   "mcpServers": {
     "battlechain": {
       "command": "wsl",
-      "args": ["bash", "-lc", "battlechain-mcp"]
+      "args": ["$pythonVersion", "-m", "battlechain_mcp"]
     }
   }
-}'
+}
+"@
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($configFile, $json, $utf8NoBom)
