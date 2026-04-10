@@ -1,10 +1,27 @@
 #!/usr/bin/env bash
 set -e
 
+# ── Find Python 3.10+ ─────────────────────────────────────────────────────────
+PYTHON=""
+for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
+  if command -v "$candidate" &>/dev/null; then
+    version=$("$candidate" -c "import sys; print(sys.version_info >= (3,10))" 2>/dev/null)
+    if [[ "$version" == "True" ]]; then
+      PYTHON="$candidate"
+      break
+    fi
+  fi
+done
+
+if [[ -z "$PYTHON" ]]; then
+  echo "Error: Python 3.10 or higher is required but not found."
+  echo "Install it with: sudo apt install python3.11  (or brew install python@3.11 on macOS)"
+  exit 1
+fi
+
 # ── Install the Python package ─────────────────────────────────────────────────
 echo "Installing BattleChain..."
-pip3 install battlechain-mcp --quiet 2>/dev/null \
-  || python3 -m pip install battlechain-mcp --quiet
+"$PYTHON" -m pip install battlechain-mcp --quiet
 
 # ── Resolve config path and MCP command ───────────────────────────────────────
 # WSL: Claude Desktop runs on Windows, so we write to the Windows AppData path
@@ -33,7 +50,7 @@ fi
 mkdir -p "$(dirname "$CONFIG")"
 
 # ── Add the battlechain MCP server entry to the config ────────────────────────
-python3 - "$CONFIG" "$MCP_COMMAND" "$MCP_ARGS" <<'EOF'
+"$PYTHON" - "$CONFIG" "$MCP_COMMAND" "$MCP_ARGS" <<'EOF'
 import json, sys
 from pathlib import Path
 
