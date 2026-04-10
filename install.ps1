@@ -57,7 +57,9 @@ if ($cfg.mcpServers.PSObject.Properties.Name -contains "battlechain") {
 }
 
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-$cfg | ConvertTo-Json -Depth 10 | Set-Content $configFile -Encoding UTF8
+$json = $cfg | ConvertTo-Json -Depth 10
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($configFile, $json, $utf8NoBom)
 
 Write-Host ""
 Write-Host "Done!"
