@@ -10,6 +10,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -163,53 +165,113 @@ def _subprocess_env() -> dict[str, str]:
 
 # ── Forge/cast runners ────────────────────────────────────────────────────────
 
-def _wsl_browser_script() -> str:
-    """
-    Write a tiny shell script that opens a URL in the Windows default browser
-    from inside WSL, and return its path.  Uses wslview if available (from the
-    wslu package), otherwise falls back to explorer.exe via its full WSL path.
-    """
-    script_path = Path("/tmp/battlechain-browser.sh")
-    wslview = subprocess.run(["which", "wslview"], capture_output=True, text=True)
-    if wslview.returncode == 0:
-        # wslu package provides wslview — purpose-built for this exact use case
-        script_path.write_text('#!/bin/sh\nwslview "$1"\n')
-    else:
-        # cmd.exe /c start is the most reliable URL opener from WSL
-        script_path.write_text(
-            '#!/bin/sh\n/mnt/c/Windows/System32/cmd.exe /c start "" "$1" 2>/dev/null\n'
-        )
-    script_path.chmod(0o755)
-    return str(script_path)
+# File where the BROWSER shim writes the signing URL
+_URL_CAPTURE_FILE = Path("/tmp/battlechain-signing-url.txt")
+
+# Pending background forge processes: script_name -> {"proc", "lines", "thread"}
+_pending: dict[str, dict] = {}
+
+
+def _url_capture_script() -> str:
+    """Return path to a BROWSER shim that writes the URL to a file instead of opening it."""
+    p = Path("/tmp/battlechain-browser.sh")
+    p.write_text(f'#!/bin/sh\nprintf "%s" "$1" > {_URL_CAPTURE_FILE}\n')
+    p.chmod(0o755)
+    return str(p)
 
 
 def forge_browser(script_path: str) -> tuple[int, str]:
-    """Run a forge script with --browser wallet signing.
-    Blocks until the user approves all MetaMask transactions."""
+    """
+    Run a forge script with --browser wallet signing.
+
+    On WSL:  starts forge in the background, captures the signing URL from
+             forge's BROWSER callback, and returns it so Claude can show it
+             as a clickable link.  The user opens it, MetaMask fires, they
+             sign, and calling this function again collects the result.
+
+    Non-WSL: runs forge synchronously (browser auto-opens as normal).
+    """
+    key = Path(script_path).name
+
+    # ── Second call: collect result from a pending background forge ──────────
+    if key in _pending:
+        entry = _pending[key]
+        proc  = entry["proc"]
+        rc    = proc.poll()
+        if rc is None:
+            # Still running — wait up to 90 s for the broadcast to finish
+            try:
+                proc.wait(timeout=90)
+                rc = proc.returncode
+            except subprocess.TimeoutExpired:
+                return 1, (
+                    "Still waiting for the transaction to be signed and broadcast. "
+                    "Open the signing URL in your MetaMask browser, approve the "
+                    "transaction(s), then call this tool again."
+                )
+        entry["thread"].join(timeout=5)
+        out = "".join(entry["lines"])
+        del _pending[key]
+        return rc, out
+
+    # ── Non-WSL: synchronous run ──────────────────────────────────────────────
     cmd = ["forge", "script", script_path, *FORGE_BROWSER_FLAGS]
     env = _subprocess_env()
-    # On WSL, forge can't auto-detect a browser. Write a wrapper script that
-    # opens the URL in the Windows default browser via WSL/Windows interop.
-    if _is_wsl() and "BROWSER" not in env:
-        env["BROWSER"] = _wsl_browser_script()
-    result = subprocess.run(
-        cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=env
+
+    if not _is_wsl() or "BROWSER" in env:
+        result = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=env)
+        return result.returncode, result.stdout + result.stderr
+
+    # ── WSL: async run — capture URL, give it to Claude as a clickable link ──
+    _URL_CAPTURE_FILE.unlink(missing_ok=True)
+    env["BROWSER"] = _url_capture_script()
+
+    proc = subprocess.Popen(
+        cmd, cwd=PROJECT_ROOT,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, env=env,
     )
-    combined = result.stdout + result.stderr
+    lines: list[str] = []
 
-    # If forge failed, surface the signing URL prominently and include all output
-    # so Claude can show the user exactly what to open if the browser launch missed.
-    if result.returncode != 0:
-        url_match = re.search(r"https?://[^\s\"']+", combined)
-        signing_url = url_match.group(0).rstrip(".,;)") if url_match else None
-        header = (
-            f"SIGNING URL — open this in your MetaMask browser:\n  {signing_url}\n\n"
-            if signing_url else
-            "No signing URL found in forge output — see raw output below.\n\n"
-        )
-        combined = header + "RAW FORGE OUTPUT:\n" + combined
+    def _drain():
+        assert proc.stdout
+        for line in proc.stdout:
+            lines.append(line)
 
-    return result.returncode, combined
+    t = threading.Thread(target=_drain, daemon=True)
+    t.start()
+    _pending[key] = {"proc": proc, "lines": lines, "thread": t}
+
+    # Wait up to 15 s for forge to call our BROWSER shim and write the URL
+    deadline = time.time() + 15
+    url = ""
+    while time.time() < deadline:
+        if _URL_CAPTURE_FILE.exists():
+            url = _URL_CAPTURE_FILE.read_text().strip()
+            if url:
+                break
+        # Also scan forge's own output in case it prints the URL directly
+        combined = "".join(lines)
+        m = re.search(r"https?://[^\s\"']+", combined)
+        if m:
+            url = m.group(0).rstrip(".,;)")
+            break
+        time.sleep(0.3)
+
+    if url:
+        return -1, url   # -1 signals "needs signing"; url is the payload
+
+    # Forge exited early (build error, etc.) before showing a URL
+    rc = proc.poll()
+    if rc is not None:
+        t.join(timeout=5)
+        del _pending[key]
+        return rc, "".join(lines)
+
+    return 1, (
+        "Forge started but didn't produce a signing URL within 15 seconds.\n\n"
+        + "".join(lines)
+    )
 
 
 def cast_call(address: str, sig: str, *args: str) -> tuple[int, str]:
@@ -231,6 +293,18 @@ def parse_address(output: str, key: str) -> str | None:
 def parse_number(output: str, label: str) -> str | None:
     m = re.search(rf"{re.escape(label)}\s*:?\s*(\d+)", output)
     return m.group(1) if m else None
+
+
+# ── Signing-URL helper ───────────────────────────────────────────────────────
+
+def _needs_signing(url: str, tool_name: str) -> list[types.TextContent]:
+    """Return a standard 'click this link to sign' message."""
+    return [types.TextContent(type="text", text=(
+        f"MetaMask signing required.\n\n"
+        f"Open this URL in the browser where MetaMask is installed:\n\n"
+        f"  {url}\n\n"
+        f"Approve the transaction(s) in MetaMask, then I'll automatically continue."
+    ))]
 
 
 # ── Prerequisite guard ────────────────────────────────────────────────────────
@@ -523,6 +597,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             ))]
 
         rc, out = forge_browser("script/Setup.s.sol")
+        if rc == -1:
+            return _needs_signing(out, "deploy_contracts")
         if rc != 0:
             return [types.TextContent(type="text", text=f"Deployment failed.\n\n{out}")]
 
@@ -560,6 +636,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             ))]
 
         rc, out = forge_browser("script/CreateAgreement.s.sol")
+        if rc == -1:
+            return _needs_signing(out, "create_agreement")
         if rc != 0:
             return [types.TextContent(type="text", text=f"Agreement creation failed.\n\n{out}")]
 
@@ -586,11 +664,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
         # Request
         rc, out = forge_browser("script/RequestAttackMode.s.sol")
+        if rc == -1:
+            return _needs_signing(out, "request_and_approve_attack_mode")
         if rc != 0:
             return [types.TextContent(type="text", text=f"Attack mode request failed.\n\n{out}")]
 
         # Approve via testnet mock moderator
         rc2, out2 = forge_browser("script/ApproveAttackMode.s.sol")
+        if rc2 == -1:
+            return _needs_signing(out2, "request_and_approve_attack_mode")
         if rc2 != 0:
             return [types.TextContent(type="text", text=(
                 "Attack mode was requested but approval failed.\n\n" + out2
@@ -622,6 +704,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         write_env_values({"SENDER_ADDRESS": wallet, "RECOVERY_ADDRESS": wallet})
 
         rc, out = forge_browser("script/Attack.s.sol")
+        if rc == -1:
+            return _needs_signing(out, "execute_attack")
         if rc != 0:
             return [types.TextContent(type="text", text=f"Attack failed.\n\n{out}")]
 
