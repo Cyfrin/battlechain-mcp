@@ -31,14 +31,39 @@ echo "Installing BattleChain..."
 # WSL: Claude Desktop runs on Windows, so we write to the Windows AppData path
 # and invoke the command via `wsl battlechain-mcp`.
 if grep -qi microsoft /proc/version 2>/dev/null; then
-  # powershell.exe is more reliable than cmd.exe for resolving Windows env vars from WSL
-  WINDOWS_APPDATA="$(powershell.exe -NoProfile -Command '[Environment]::GetFolderPath("ApplicationData")' 2>/dev/null | tr -d '\r\n')"
-  if [[ -z "$WINDOWS_APPDATA" ]]; then
-    echo "Error: could not resolve Windows AppData path from WSL."
-    echo "Please run the install script from a native macOS or Linux terminal, or manually add the config."
-    exit 1
+  # Try several methods to resolve the Windows AppData path from WSL
+  APPDATA_WSL=""
+
+  # Method 1: wslvar (available when wslu package is installed)
+  if command -v wslvar &>/dev/null; then
+    _raw="$(wslvar APPDATA 2>/dev/null | tr -d '\r\n')"
+    [[ -n "$_raw" ]] && APPDATA_WSL="$(wslpath "$_raw" 2>/dev/null)"
   fi
-  CONFIG="$(wslpath "$WINDOWS_APPDATA")/Claude/claude_desktop_config.json"
+
+  # Method 2: powershell.exe via $env:APPDATA
+  if [[ -z "$APPDATA_WSL" ]] && command -v powershell.exe &>/dev/null; then
+    _raw="$(powershell.exe -NoProfile -NonInteractive -Command 'Write-Output $env:APPDATA' 2>/dev/null | tr -d '\r\n')"
+    [[ -n "$_raw" ]] && APPDATA_WSL="$(wslpath "$_raw" 2>/dev/null)"
+  fi
+
+  # Method 3: cmd.exe USERNAME → construct path manually
+  if [[ -z "$APPDATA_WSL" ]] && command -v cmd.exe &>/dev/null; then
+    _user="$(cmd.exe /c 'echo %USERNAME%' 2>/dev/null | tr -d '\r\n')"
+    [[ -n "$_user" ]] && APPDATA_WSL="/mnt/c/Users/$_user/AppData/Roaming"
+  fi
+
+  if [[ -z "$APPDATA_WSL" ]]; then
+    echo ""
+    echo "Could not auto-detect your Windows AppData path."
+    echo "Manually add this to: %APPDATA%\\Claude\\claude_desktop_config.json"
+    echo ""
+    echo '  { "mcpServers": { "battlechain": { "command": "wsl", "args": ["battlechain-mcp"] } } }'
+    echo ""
+    echo "Then restart Claude Desktop."
+    exit 0
+  fi
+
+  CONFIG="$APPDATA_WSL/Claude/claude_desktop_config.json"
   MCP_COMMAND="wsl"
   MCP_ARGS='["battlechain-mcp"]'
 elif [[ "$OSTYPE" == "darwin"* ]]; then
