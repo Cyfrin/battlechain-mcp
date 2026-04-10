@@ -389,13 +389,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 steps.append("Foundry: found but needs upgrade for --browser support — updating...")
 
             # Install/upgrade to latest nightly (required for --browser flag).
-            # Use --version nightly explicitly; plain foundryup may default to stable.
-            rc, out = _run([str(FOUNDRY_BIN / "foundryup"), "--version", "nightly"])
+            # foundryup defaults to stable; --install nightly gets nightly pre-built binaries.
+            rc, out = _run([str(FOUNDRY_BIN / "foundryup"), "--install", "nightly"])
             if rc != 0:
-                # Some older foundryup scripts don't support --version; try bare
-                rc, out = _run([str(FOUNDRY_BIN / "foundryup")])
-                if rc != 0:
-                    return [types.TextContent(type="text", text=f"foundryup failed.\n\n{out}")]
+                return [types.TextContent(type="text", text=f"foundryup failed.\n\n{out}")]
 
             # Verify the upgrade actually gave us --browser support
             if not _forge_has_browser():
