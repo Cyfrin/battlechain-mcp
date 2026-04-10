@@ -3,15 +3,14 @@
 #
 #   irm https://raw.githubusercontent.com/Cyfrin/battlechain-mcp/main/install.ps1 | iex
 
-$ErrorActionPreference = "Stop"
-
 Write-Host "Installing BattleChain..."
 
 # ── Install Python package inside WSL ─────────────────────────────────────────
-# Redirect stderr to suppress pip PATH warnings that PowerShell misreads as errors.
+# *>&1 | Out-Null suppresses all streams so pip's stderr warnings don't get
+# misread as PowerShell errors (NativeCommandError).
 $installed = $false
 foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13")) {
-    wsl -- $py -m pip install "git+https://github.com/Cyfrin/battlechain-mcp.git" --quiet 2>&1 | Out-Null
+    wsl -- $py -m pip install "git+https://github.com/Cyfrin/battlechain-mcp.git" --quiet *>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         $installed = $true
         break
@@ -19,7 +18,8 @@ foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13")) {
 }
 
 if (-not $installed) {
-    Write-Error "Could not install the package in WSL. Make sure WSL is running and has Python 3.10+ installed."
+    Write-Host "ERROR: Could not install the package in WSL."
+    Write-Host "Make sure WSL is running and has Python 3.10+ installed."
     exit 1
 }
 
@@ -27,18 +27,16 @@ if (-not $installed) {
 $configDir  = "$env:APPDATA\Claude"
 $configFile = "$configDir\claude_desktop_config.json"
 
+$cfg = [PSCustomObject]@{}
 if (Test-Path $configFile) {
-    try   { $cfg = (Get-Content $configFile -Raw) | ConvertFrom-Json }
-    catch { $cfg = [PSCustomObject]@{} }
-} else {
-    $cfg = [PSCustomObject]@{}
+    try { $cfg = Get-Content $configFile -Raw | ConvertFrom-Json } catch {}
 }
 
 if (-not ($cfg.PSObject.Properties.Name -contains "mcpServers")) {
     $cfg | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{})
 }
 
-# Use `bash -lc` so WSL starts a login shell that includes ~/.local/bin in PATH
+# Use bash -lc so WSL starts a login shell with ~/.local/bin in PATH
 $bcEntry = [PSCustomObject]@{ command = "wsl"; args = @("bash", "-lc", "battlechain-mcp") }
 
 if ($cfg.mcpServers.PSObject.Properties.Name -contains "battlechain") {
