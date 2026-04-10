@@ -7,8 +7,12 @@ for candidate in python3.13 python3.12 python3.11 python3.10 python3; do
   if command -v "$candidate" &>/dev/null; then
     version=$("$candidate" -c "import sys; print(sys.version_info >= (3,10))" 2>/dev/null)
     if [[ "$version" == "True" ]]; then
-      PYTHON="$candidate"
-      break
+      # Also verify pip is functional for this Python (e.g. py3.12 system pip
+      # on Ubuntu can be broken due to missing distutils)
+      if "$candidate" -m pip --version &>/dev/null 2>&1; then
+        PYTHON="$candidate"
+        break
+      fi
     fi
   fi
 done
