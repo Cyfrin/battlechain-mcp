@@ -2,6 +2,8 @@
 
 **What you need:** Claude Desktop, MetaMask, Python 3.11+
 
+**Supported platforms:** macOS, Linux, or WSL (Windows Subsystem for Linux)
+
 ---
 
 ## Setup (one terminal command)
