@@ -68,6 +68,13 @@ def _forge_available() -> bool:
     return result.returncode == 0
 
 
+def _forge_has_browser() -> bool:
+    """Check if the installed forge supports the --browser flag (requires nightly >= 1.6.0, 2026-03-10)."""
+    _ensure_foundry_in_path()
+    result = subprocess.run(["forge", "script", "--help"], capture_output=True, text=True)
+    return "--browser" in result.stdout
+
+
 def _git_available() -> bool:
     result = subprocess.run(["git", "--version"], capture_output=True)
     return result.returncode == 0
@@ -343,8 +350,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             ))]
         steps.append("git: found")
 
-        # 2. Foundry
-        if not _forge_available():
+        # 2. Foundry — must be nightly >= 1.6.0 (2026-03-10) for --browser support.
+        needs_install = not _forge_available()
+        needs_upgrade = not needs_install and not _forge_has_browser()
+
+        if needs_install or needs_upgrade:
             # Foundry's prebuilt binaries require glibc 2.34+ (Ubuntu 22.04+).
             # Check before attempting install so we give a clear actionable error.
             glibc = _glibc_version()
@@ -361,17 +371,21 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                     "Then re-run the BattleChain installer in PowerShell and try again."
                 ))]
 
-            steps.append("Foundry: not found — installing...")
-            rc, out = _run(
-                ["bash", "-c", "curl -L https://foundry.paradigm.xyz | bash -s -- --no-modify-path"],
-            )
-            if rc != 0:
-                return [types.TextContent(type="text", text=f"Foundry installation failed.\n\n{out}")]
-            # Install the actual forge/cast binaries
-            rc, out = _run([str(FOUNDRY_BIN / "foundryup")])
+            if needs_install:
+                steps.append("Foundry: not found — installing...")
+                rc, out = _run(
+                    ["bash", "-c", "curl -L https://foundry.paradigm.xyz | bash -s -- --no-modify-path"],
+                )
+                if rc != 0:
+                    return [types.TextContent(type="text", text=f"Foundry installation failed.\n\n{out}")]
+            else:
+                steps.append("Foundry: found but needs upgrade for --browser support — updating...")
+
+            # Install/upgrade to latest nightly (required for --browser flag)
+            rc, out = _run([str(FOUNDRY_BIN / "foundryup"), "--nightly"])
             if rc != 0:
                 return [types.TextContent(type="text", text=f"foundryup failed.\n\n{out}")]
-            steps.append("Foundry: installed successfully")
+            steps.append("Foundry: installed (nightly)")
         else:
             steps.append("Foundry (forge/cast): found")
 
