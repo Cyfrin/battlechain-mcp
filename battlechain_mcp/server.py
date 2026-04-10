@@ -73,6 +73,18 @@ def _git_available() -> bool:
     return result.returncode == 0
 
 
+def _glibc_version() -> tuple[int, int] | None:
+    """Return the host glibc version as (major, minor), or None if undetectable."""
+    result = subprocess.run(["ldd", "--version"], capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    first_line = result.stdout.splitlines()[0] if result.stdout else ""
+    m = re.search(r"(\d+)\.(\d+)\s*$", first_line)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
 def _run(cmd: list[str], cwd: Path | None = None, extra_env: dict | None = None) -> tuple[int, str]:
     """Run a command, returning (returncode, combined output)."""
     env = os.environ.copy()
@@ -331,6 +343,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
         # 2. Foundry
         if not _forge_available():
+            # Foundry's prebuilt binaries require glibc 2.34+ (Ubuntu 22.04+).
+            # Check before attempting install so we give a clear actionable error.
+            glibc = _glibc_version()
+            if glibc is not None and glibc < (2, 34):
+                return [types.TextContent(type="text", text=(
+                    f"SETUP ERROR: Your WSL Ubuntu is too old to run Foundry.\n\n"
+                    f"Your WSL glibc version: {glibc[0]}.{glibc[1]}\n"
+                    f"Required:               2.34 or higher (Ubuntu 22.04+)\n\n"
+                    "To fix this, open PowerShell on Windows and run:\n\n"
+                    "    wsl --install -d Ubuntu-22.04\n\n"
+                    "This installs Ubuntu 22.04 alongside your current WSL without removing anything. "
+                    "Once installed, set it as default with:\n\n"
+                    "    wsl --set-default Ubuntu-22.04\n\n"
+                    "Then re-run the BattleChain installer in PowerShell and try again."
+                ))]
+
             steps.append("Foundry: not found — installing...")
             rc, out = _run(
                 ["bash", "-c", "curl -L https://foundry.paradigm.xyz | bash -s -- --no-modify-path"],
