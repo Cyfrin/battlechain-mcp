@@ -9,17 +9,25 @@ Write-Host "Installing BattleChain..."
 # Run inside bash with 2>/dev/null so stderr never reaches PowerShell.
 # Track which Python version succeeds so we can use it in the config.
 $pythonVersion = $null
-foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13")) {
-    wsl -- bash -c "$py -m pip install 'git+https://github.com/Cyfrin/battlechain-mcp.git' --force-reinstall --quiet 2>/dev/null"
+foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13", "python3")) {
+    # Bootstrap pip via ensurepip if it isn't installed, then install the package.
+    wsl -- bash -c "$py -m ensurepip --upgrade 2>/dev/null; $py -m pip install 'git+https://github.com/Cyfrin/battlechain-mcp.git' --force-reinstall --quiet 2>/dev/null"
     if ($LASTEXITCODE -eq 0) {
-        $pythonVersion = $py
-        break
+        # Verify this is actually 3.10+ before accepting it
+        $ver = wsl -- bash -c "$py -c 'import sys; print(sys.version_info >= (3,10))' 2>/dev/null"
+        if ($ver -eq "True") {
+            $pythonVersion = $py
+            break
+        }
     }
 }
 
 if (-not $pythonVersion) {
+    Write-Host ""
     Write-Host "ERROR: Could not install the package in WSL."
-    Write-Host "Make sure WSL is running and has Python 3.10+ installed."
+    Write-Host "Make sure your WSL distro has Python 3.10+ installed."
+    Write-Host "To install it, open WSL and run: sudo apt-get install -y python3 python3-pip"
+    Read-Host "Press Enter to close"
     exit 1
 }
 
