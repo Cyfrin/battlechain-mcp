@@ -10,7 +10,7 @@ Write-Host "Installing BattleChain..."
 # Track which Python version succeeds so we can use it in the config.
 $pythonVersion = $null
 foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13")) {
-    wsl -- bash -c "$py -m pip install 'git+https://github.com/Cyfrin/battlechain-mcp.git' --quiet 2>/dev/null"
+    wsl -- bash -c "$py -m pip install 'git+https://github.com/Cyfrin/battlechain-mcp.git' --force-reinstall --quiet 2>/dev/null"
     if ($LASTEXITCODE -eq 0) {
         $pythonVersion = $py
         break
