@@ -24,7 +24,18 @@ if (-not $installed) {
 }
 
 # ── Write Claude Desktop config (native Windows, no interop needed) ───────────
-$configDir  = "$env:APPDATA\Claude"
+# Claude Desktop installed via the Windows Store uses a virtualized AppData path
+# under LocalPackages rather than the standard %APPDATA% location.
+$claudePackageDir = Get-ChildItem "$env:LOCALAPPDATA\Packages" -Directory -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -like "Claude_*" } |
+    Select-Object -First 1
+
+if ($claudePackageDir) {
+    $configDir = "$($claudePackageDir.FullName)\LocalCache\Roaming\Claude"
+} else {
+    $configDir = "$env:APPDATA\Claude"
+}
+
 $configFile = "$configDir\claude_desktop_config.json"
 
 $cfg = [PSCustomObject]@{}
