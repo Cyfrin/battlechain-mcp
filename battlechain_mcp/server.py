@@ -6,12 +6,14 @@ MetaMask handles all transaction signing — no private keys ever touch this ser
 """
 
 import asyncio
+import http.server
+import json
 import os
 import re
+import socketserver
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -27,22 +29,11 @@ PROJECT_ROOT     = BATTLECHAIN_DIR / "starter"
 ENV_FILE         = PROJECT_ROOT / ".env"
 FOUNDRY_BIN      = Path.home() / ".foundry" / "bin"
 
-RPC_URL          = "https://testnet.battlechain.com:3051"
-CHAIN_ID         = "627"
-EXPLORER_API     = "https://block-explorer-api.testnet.battlechain.com/api"
-ATTACK_REGISTRY  = "0x9E62988ccA776ff6613Fa68D34c9AB5431Ce57e1"
-MOCK_MODERATOR   = "0x1bC64E6F187a47D136106784f4E9182801535BD3"
-
-FORGE_BROWSER_FLAGS = [
-    "--rpc-url", RPC_URL,
-    "--broadcast",
-    "--browser",
-    "--chain", CHAIN_ID,
-    "--skip-simulation",
-    "--verifier-url", EXPLORER_API,
-    "--verifier", "custom",
-    "--etherscan-api-key", "1234",
-]
+RPC_URL         = "https://testnet.battlechain.com:3051"
+CHAIN_ID        = "627"
+EXPLORER_API    = "https://block-explorer-api.testnet.battlechain.com/api"
+ATTACK_REGISTRY = "0x9E62988ccA776ff6613Fa68D34c9AB5431Ce57e1"
+MOCK_MODERATOR  = "0x1bC64E6F187a47D136106784f4E9182801535BD3"
 
 AGREEMENT_STATES = {
     "0": "UNREGISTERED",
@@ -57,7 +48,6 @@ AGREEMENT_STATES = {
 # ── Foundry PATH helpers ──────────────────────────────────────────────────────
 
 def _ensure_foundry_in_path() -> None:
-    """Add ~/.foundry/bin to PATH for this process if it isn't there already."""
     foundry_str = str(FOUNDRY_BIN)
     path = os.environ.get("PATH", "")
     if foundry_str not in path.split(":"):
@@ -66,20 +56,11 @@ def _ensure_foundry_in_path() -> None:
 
 def _forge_available() -> bool:
     _ensure_foundry_in_path()
-    result = subprocess.run(["forge", "--version"], capture_output=True)
-    return result.returncode == 0
-
-
-def _forge_has_browser() -> bool:
-    """Check if the installed forge supports the --browser flag (requires nightly >= 1.6.0, 2026-03-10)."""
-    _ensure_foundry_in_path()
-    result = subprocess.run(["forge", "script", "--help"], capture_output=True, text=True)
-    return "--browser" in result.stdout
+    return subprocess.run(["forge", "--version"], capture_output=True).returncode == 0
 
 
 def _git_available() -> bool:
-    result = subprocess.run(["git", "--version"], capture_output=True)
-    return result.returncode == 0
+    return subprocess.run(["git", "--version"], capture_output=True).returncode == 0
 
 
 def _is_wsl() -> bool:
@@ -90,7 +71,6 @@ def _is_wsl() -> bool:
 
 
 def _glibc_version() -> tuple[int, int] | None:
-    """Return the host glibc version as (major, minor), or None if undetectable."""
     result = subprocess.run(["ldd", "--version"], capture_output=True, text=True)
     if result.returncode != 0:
         return None
@@ -102,10 +82,9 @@ def _glibc_version() -> tuple[int, int] | None:
 
 
 def _run(cmd: list[str], cwd: Path | None = None, extra_env: dict | None = None) -> tuple[int, str]:
-    """Run a command, returning (returncode, combined output)."""
     env = os.environ.copy()
     _ensure_foundry_in_path()
-    env["PATH"] = os.environ["PATH"]  # pick up any updates from _ensure_foundry_in_path
+    env["PATH"] = os.environ["PATH"]
     if extra_env:
         env.update(extra_env)
     result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
@@ -115,7 +94,6 @@ def _run(cmd: list[str], cwd: Path | None = None, extra_env: dict | None = None)
 # ── .env helpers ──────────────────────────────────────────────────────────────
 
 def read_env() -> dict[str, str]:
-    """Read key=value pairs from the project .env file."""
     env: dict[str, str] = {}
     if not ENV_FILE.exists():
         return env
@@ -128,7 +106,6 @@ def read_env() -> dict[str, str]:
 
 
 def write_env_values(updates: dict[str, str]) -> None:
-    """Update specific key=value lines in .env, preserving comments and structure."""
     if not ENV_FILE.exists():
         example = PROJECT_ROOT / ".env.example"
         ENV_FILE.write_text(example.read_text() if example.exists() else "")
@@ -155,132 +132,11 @@ def write_env_values(updates: dict[str, str]) -> None:
 
 
 def _subprocess_env() -> dict[str, str]:
-    """OS env + .env values so forge scripts can read all required variables."""
     env = os.environ.copy()
     _ensure_foundry_in_path()
     env["PATH"] = os.environ["PATH"]
     env.update(read_env())
     return env
-
-
-# ── Forge/cast runners ────────────────────────────────────────────────────────
-
-# File where the BROWSER shim writes the signing URL
-_URL_CAPTURE_FILE = Path("/tmp/battlechain-signing-url.txt")
-
-# Pending background forge processes: script_name -> {"proc", "lines", "thread"}
-_pending: dict[str, dict] = {}
-
-
-def _url_capture_script() -> str:
-    """Return path to a BROWSER shim that writes the URL to a file instead of opening it."""
-    p = Path("/tmp/battlechain-browser.sh")
-    p.write_text(f'#!/bin/sh\nprintf "%s" "$1" > {_URL_CAPTURE_FILE}\n')
-    p.chmod(0o755)
-    return str(p)
-
-
-def forge_browser(script_path: str) -> tuple[int, str]:
-    """
-    Run a forge script with --browser wallet signing.
-
-    On WSL:  starts forge in the background, captures the signing URL from
-             forge's BROWSER callback, and returns it so Claude can show it
-             as a clickable link.  The user opens it, MetaMask fires, they
-             sign, and calling this function again collects the result.
-
-    Non-WSL: runs forge synchronously (browser auto-opens as normal).
-    """
-    key = Path(script_path).name
-
-    # ── Second call: collect result from a pending background forge ──────────
-    if key in _pending:
-        entry = _pending[key]
-        proc  = entry["proc"]
-        rc    = proc.poll()
-        if rc is None:
-            # Still running — wait up to 90 s for the broadcast to finish
-            try:
-                proc.wait(timeout=90)
-                rc = proc.returncode
-            except subprocess.TimeoutExpired:
-                return 1, (
-                    "Still waiting for the transaction to be signed and broadcast. "
-                    "Open the signing URL in your MetaMask browser, approve the "
-                    "transaction(s), then call this tool again."
-                )
-        entry["thread"].join(timeout=5)
-        out = "".join(entry["lines"])
-        del _pending[key]
-        return rc, out
-
-    # ── Non-WSL: synchronous run ──────────────────────────────────────────────
-    cmd = ["forge", "script", script_path, *FORGE_BROWSER_FLAGS]
-    env = _subprocess_env()
-
-    if not _is_wsl() or "BROWSER" in env:
-        result = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=env)
-        return result.returncode, result.stdout + result.stderr
-
-    # ── WSL: async run — capture URL, give it to Claude as a clickable link ──
-    _URL_CAPTURE_FILE.unlink(missing_ok=True)
-    env["BROWSER"] = _url_capture_script()
-
-    proc = subprocess.Popen(
-        cmd, cwd=PROJECT_ROOT,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, env=env,
-    )
-    lines: list[str] = []
-
-    def _drain():
-        assert proc.stdout
-        for line in proc.stdout:
-            lines.append(line)
-
-    t = threading.Thread(target=_drain, daemon=True)
-    t.start()
-    _pending[key] = {"proc": proc, "lines": lines, "thread": t}
-
-    # Wait up to 15 s for forge to call our BROWSER shim and write the URL
-    deadline = time.time() + 15
-    url = ""
-    while time.time() < deadline:
-        if _URL_CAPTURE_FILE.exists():
-            url = _URL_CAPTURE_FILE.read_text().strip()
-            if url:
-                break
-        # Also scan forge's own output in case it prints the URL directly
-        combined = "".join(lines)
-        m = re.search(r"https?://[^\s\"']+", combined)
-        if m:
-            url = m.group(0).rstrip(".,;)")
-            break
-        time.sleep(0.3)
-
-    if url:
-        return -1, url   # -1 signals "needs signing"; url is the payload
-
-    # Forge exited early (build error, etc.) before showing a URL
-    rc = proc.poll()
-    if rc is not None:
-        t.join(timeout=5)
-        del _pending[key]
-        return rc, "".join(lines)
-
-    return 1, (
-        "Forge started but didn't produce a signing URL within 15 seconds.\n\n"
-        + "".join(lines)
-    )
-
-
-def cast_call(address: str, sig: str, *args: str) -> tuple[int, str]:
-    """Read-only cast call against the testnet."""
-    cmd = ["cast", "call", address, sig, *args, "--rpc-url", RPC_URL]
-    result = subprocess.run(
-        cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=_subprocess_env()
-    )
-    return result.returncode, (result.stdout or result.stderr).strip()
 
 
 # ── Output parsers ────────────────────────────────────────────────────────────
@@ -295,15 +151,356 @@ def parse_number(output: str, label: str) -> str | None:
     return m.group(1) if m else None
 
 
-# ── Signing-URL helper ───────────────────────────────────────────────────────
+# ── MetaMask signing page ─────────────────────────────────────────────────────
 
-def _needs_signing(url: str, tool_name: str) -> list[types.TextContent]:
-    """Return a standard 'click this link to sign' message."""
+_SIGNING_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BattleChain \u2014 Sign Transactions</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         max-width: 560px; margin: 64px auto; padding: 0 24px; color: #1a1a2e; }
+  h1   { font-size: 1.25rem; color: #16213e; margin-bottom: 4px; }
+  .sub { color: #666; font-size: .88rem; margin: 0 0 24px; }
+  #box { border: 1px solid #d4daf0; border-radius: 8px; padding: 18px 20px;
+         background: #f8f9ff; }
+  #st  { font-weight: 600; margin: 0 0 4px; white-space: pre-wrap; }
+  #dt  { color: #555; font-size: .87rem; min-height: 1.1em; }
+  .ok  { color: #1b6e3c; }
+  .err { color: #b91c1c; }
+</style>
+</head>
+<body>
+<h1>&#x1F510; BattleChain Demo</h1>
+<p class="sub">This page signs the demo transactions via MetaMask.</p>
+<div id="box">
+  <div id="st">Connecting to MetaMask\u2026</div>
+  <div id="dt"></div>
+</div>
+<script>
+(async () => {
+  const st = document.getElementById('st');
+  const dt = document.getElementById('dt');
+  const set = (s, d, cls) => {
+    st.textContent = s;
+    if (d !== undefined) dt.textContent = d;
+    if (cls) st.className = cls;
+  };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  if (!window.ethereum) {
+    set('MetaMask not detected.', 'Install MetaMask in this browser, then refresh.', 'err');
+    return;
+  }
+
+  // 1. Connect wallet
+  let accounts;
+  try {
+    accounts = await window.ethereum.request({method: 'eth_requestAccounts'});
+  } catch(e) {
+    set('MetaMask connection cancelled.', e.message, 'err');
+    return;
+  }
+  const address = accounts[0];
+
+  // 2. Switch to / add BattleChain testnet
+  const chainHex = '0x' + (CHAIN_ID_INT).toString(16);
+  try {
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{chainId: chainHex}],
+    });
+  } catch(e) {
+    if (e.code === 4902 || e.code === -32603) {
+      try {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: chainHex,
+            chainName: 'BattleChain Testnet',
+            rpcUrls: ['https://testnet.battlechain.com:3051'],
+            nativeCurrency: {name: 'ETH', symbol: 'ETH', decimals: 18},
+            blockExplorerUrls: ['https://block-explorer.testnet.battlechain.com'],
+          }],
+        });
+      } catch(e2) {
+        set('Could not add BattleChain network.', e2.message, 'err');
+        return;
+      }
+    }
+  }
+
+  // 3. Send address to server so it can run forge dry-run
+  set('Connected: ' + address, 'Preparing transactions\u2026');
+  try {
+    await fetch('/connect', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({address}),
+    });
+  } catch(e) {
+    set('Could not reach local signing server.', e.message, 'err');
+    return;
+  }
+
+  // 4. Poll until transactions are ready
+  let txs;
+  for (;;) {
+    let r;
+    try { r = await fetch('/txs'); } catch(e) { await sleep(1000); continue; }
+    if (r.status === 200) { txs = (await r.json()).transactions; break; }
+    if (r.status === 500) {
+      set('Transaction preparation failed.', await r.text(), 'err'); return;
+    }
+    await sleep(1000);
+  }
+  if (!txs || !txs.length) {
+    set('No transactions to sign.', '', 'err'); return;
+  }
+
+  // 5. Sign each transaction sequentially
+  const hashes = [];
+  for (let i = 0; i < txs.length; i++) {
+    const tx = txs[i];
+    set('Sign transaction ' + (i+1) + ' of ' + txs.length + ' in MetaMask\u2026',
+        tx.description ? 'Action: ' + tx.description : '');
+    const params = {from: address, data: tx.data, value: tx.value || '0x0'};
+    if (tx.to) params.to = tx.to;
+    let hash;
+    try {
+      hash = await window.ethereum.request({method: 'eth_sendTransaction', params: [params]});
+    } catch(e) {
+      set('Transaction ' + (i+1) + ' rejected.', e.message, 'err'); return;
+    }
+    hashes.push(hash);
+    dt.textContent = '\u2713 tx ' + (i+1) + ': ' + hash.slice(0, 12) + '\u2026';
+  }
+
+  // 6. Report back and done
+  await fetch('/done', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({hashes, address}),
+  });
+  set('\u2713 All ' + hashes.length + ' transaction(s) submitted!',
+      'You can close this tab and return to Claude.', 'ok');
+})();
+</script>
+</body>
+</html>
+"""
+
+
+class _SigningHandler(http.server.BaseHTTPRequestHandler):
+    server: "_SigningServer"
+
+    def log_message(self, *args: Any) -> None:
+        pass
+
+    def do_GET(self) -> None:
+        if self.path == "/":
+            self._send(200, "text/html; charset=utf-8", self.server.html.encode())
+        elif self.path == "/txs":
+            with self.server._lock:
+                err = self.server._forge_error
+                txs = self.server._txs
+            if err is not None:
+                self._send(500, "text/plain", err.encode())
+            elif txs is not None:
+                self._send(200, "application/json", json.dumps({"transactions": txs}).encode())
+            else:
+                self._send(202, "text/plain", b"")
+        else:
+            self._send(404, "text/plain", b"not found")
+
+    def do_POST(self) -> None:
+        n = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(n)
+        try:
+            data = json.loads(body) if body else {}
+        except Exception:
+            data = {}
+
+        if self.path == "/connect":
+            addr = data.get("address", "").strip()
+            self.server._wallet_address = addr
+            threading.Thread(target=self.server._run_forge, args=(addr,), daemon=True).start()
+            self._send(200, "text/plain", b"ok")
+        elif self.path == "/done":
+            self.server._result = data
+            self.server._done_event.set()
+            self._send(200, "text/plain", b"ok")
+        else:
+            self._send(404, "text/plain", b"not found")
+
+    def _send(self, code: int, ct: str, body: bytes) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+class _SigningServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+    def __init__(self, script_path: str) -> None:
+        self.script_path = script_path
+        self._wallet_address: str | None = None
+        self._txs: list | None = None
+        self._forge_error: str | None = None
+        self._env_updates: dict[str, str] = {}
+        self._result: dict | None = None
+        self._done_event = threading.Event()
+        self._lock = threading.Lock()
+        super().__init__(("127.0.0.1", 0), _SigningHandler)
+        port = self.server_address[1]
+        self.html = _SIGNING_HTML.replace("CHAIN_ID_INT", CHAIN_ID)
+        self.url = f"http://127.0.0.1:{port}/"
+
+    def _run_forge(self, sender: str) -> None:
+        try:
+            txs, env_updates, error = _dry_run_forge(self.script_path, sender)
+            with self._lock:
+                if error:
+                    self._forge_error = error
+                else:
+                    self._env_updates = env_updates
+                    self._txs = txs
+        except Exception as exc:
+            with self._lock:
+                self._forge_error = str(exc)
+
+    def wait(self, timeout: int = 300) -> dict | None:
+        self._done_event.wait(timeout=timeout)
+        return self._result
+
+
+# Pending signing servers keyed by script basename
+_signing_servers: dict[str, _SigningServer] = {}
+
+
+def _dry_run_forge(script_path: str, sender: str) -> tuple[list, dict, str]:
+    """
+    Simulate a forge script without broadcasting.
+    Returns (transactions, env_updates, error_string).
+    error_string is empty on success.
+    """
+    _ensure_foundry_in_path()
+    script_name = Path(script_path).name
+
+    cmd = [
+        "forge", "script", script_path,
+        "--sender", sender,
+        "--rpc-url", RPC_URL,
+        "--chain", CHAIN_ID,
+        "--legacy",
+    ]
+    env = _subprocess_env()
+    env["SENDER_ADDRESS"] = sender
+
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=env)
+    output = result.stdout + result.stderr
+
+    if result.returncode != 0:
+        return [], {}, f"Forge simulation failed:\n\n{output}"
+
+    # Parse predicted contract addresses from script console.log output
+    env_updates: dict[str, str] = {}
+    for key in ("TOKEN_ADDRESS", "VAULT_ADDRESS", "AGREEMENT_ADDRESS"):
+        m = re.search(rf"{re.escape(key)}[=:\s]+\s*(0x[0-9a-fA-F]{{40}})", output)
+        if m:
+            env_updates[key] = m.group(1)
+
+    # Read the dry-run broadcast JSON written by forge
+    dry_run_path = (
+        PROJECT_ROOT / "broadcast" / script_name / CHAIN_ID / "dry-run" / "run-latest.json"
+    )
+    if not dry_run_path.exists():
+        return [], env_updates, (
+            f"Forge simulation produced no transaction file.\n"
+            f"Expected: {dry_run_path}\n\n{output}"
+        )
+
+    try:
+        data = json.loads(dry_run_path.read_text())
+    except Exception as exc:
+        return [], env_updates, f"Failed to parse dry-run JSON: {exc}"
+
+    txs = []
+    for entry in data.get("transactions", []):
+        tx = entry.get("transaction", {})
+        desc = entry.get("contractName") or entry.get("function") or ""
+        txs.append({
+            "to": tx.get("to"),
+            "data": tx.get("input", "0x"),
+            "value": tx.get("value", "0x0"),
+            "description": desc,
+        })
+
+    return txs, env_updates, ""
+
+
+def _open_browser(url: str) -> None:
+    if _is_wsl():
+        if subprocess.run(["which", "wslview"], capture_output=True).returncode == 0:
+            subprocess.Popen(["wslview", url])
+        else:
+            subprocess.Popen(["cmd.exe", "/c", "start", "", url])
+    else:
+        import webbrowser
+        webbrowser.open(url)
+
+
+def forge_sign_with_metamask(script_path: str) -> tuple[int, str]:
+    """
+    Start (or check) a MetaMask signing session for the given forge script.
+
+    First call:  starts a local HTTP server, opens the signing page in the
+                 browser, and returns (-1, url) so Claude can show the link.
+    Second call: checks whether the user has finished signing.
+                 Returns (0, output) on success or (1, error) on failure.
+    """
+    key = Path(script_path).name
+
+    # ── Second call: collect result ───────────────────────────────────────────
+    if key in _signing_servers:
+        srv = _signing_servers[key]
+        if not srv._done_event.is_set():
+            return -1, srv.url  # still waiting — return url again
+        result = srv._result or {}
+        srv.shutdown()
+        del _signing_servers[key]
+
+        addr = result.get("address", "")
+        updates: dict[str, str] = {}
+        if addr:
+            updates["SENDER_ADDRESS"] = addr
+        updates.update(srv._env_updates)
+        if updates:
+            write_env_values(updates)
+
+        hashes = result.get("hashes", [])
+        if not hashes:
+            return 1, "No transaction hashes received — MetaMask may have rejected the transactions."
+        return 0, "Signed " + str(len(hashes)) + " transaction(s).\nHashes:\n" + "\n".join(hashes)
+
+    # ── First call: start server and open browser ─────────────────────────────
+    srv = _SigningServer(script_path)
+    _signing_servers[key] = srv
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    _open_browser(srv.url)
+    return -1, srv.url
+
+
+def _needs_signing(url: str) -> list[types.TextContent]:
     return [types.TextContent(type="text", text=(
         f"MetaMask signing required.\n\n"
         f"Open this URL in the browser where MetaMask is installed:\n\n"
         f"  {url}\n\n"
-        f"Approve the transaction(s) in MetaMask, then I'll automatically continue."
+        f"Approve all transactions in MetaMask, then call this tool again to continue."
     ))]
 
 
@@ -312,6 +509,16 @@ def _needs_signing(url: str, tool_name: str) -> list[types.TextContent]:
 def missing_keys(keys: list[str]) -> list[str]:
     env = read_env()
     return [k for k in keys if not env.get(k)]
+
+
+# ── cast read-only helper ─────────────────────────────────────────────────────
+
+def cast_call(address: str, sig: str, *args: str) -> tuple[int, str]:
+    cmd = ["cast", "call", address, sig, *args, "--rpc-url", RPC_URL]
+    result = subprocess.run(
+        cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=_subprocess_env()
+    )
+    return result.returncode, (result.stdout or result.stderr).strip()
 
 
 # ── MCP server ────────────────────────────────────────────────────────────────
@@ -396,7 +603,8 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Step 1 of 4. Deploy the demo smart contracts (MockToken and VulnerableVault) "
                 "to the BattleChain testnet and seed the vault with 1,000 tokens. "
-                "This opens MetaMask in the user's browser — tell them to approve the transactions when prompted. "
+                "Opens a local signing page — the user approves transactions in MetaMask. "
+                "Call this tool again after the user finishes signing to collect the result. "
                 "Requires prepare_environment to have succeeded first."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
@@ -406,7 +614,7 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Step 2 of 4. Create a Safe Harbor security agreement and register it on the BattleChain registry. "
                 "This is the legal framework that makes the upcoming attack a legitimate whitehat engagement. "
-                "Opens MetaMask — tell the user to approve. "
+                "Opens MetaMask signing page — tell the user to approve, then call this tool again. "
                 "Requires Step 1 (deploy_contracts) to be complete."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
@@ -416,7 +624,7 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Step 3 of 4. Submit the attack mode request and immediately approve it via the testnet moderator. "
                 "On testnet anyone can approve, so this skips the normal waiting period. "
-                "Opens MetaMask twice in quick succession (once to request, once to approve). "
+                "Opens MetaMask signing page twice in quick succession (once to request, once to approve). "
                 "Requires Step 2 (create_agreement) to be complete."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
@@ -430,7 +638,7 @@ async def list_tools() -> list[types.Tool]:
                 "Explain to the user: the vault holds 1,000 tokens; the attack will drain it completely; "
                 "90% will be returned to their wallet as protocol recovery, 10% kept as the whitehat bounty. "
                 "Once the user confirms, call this tool with their wallet address. "
-                "Opens MetaMask for final signing. "
+                "Opens MetaMask signing page. Call again after signing to collect the result. "
                 "Requires Step 3 (request_and_approve_attack_mode) to be complete."
             ),
             inputSchema={
@@ -477,13 +685,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             ))]
         steps.append("git: found")
 
-        # 2. Foundry — must be nightly >= 1.6.0 (2026-03-10) for --browser support.
-        needs_install = not _forge_available()
-        needs_upgrade = not needs_install and not _forge_has_browser()
-
-        if needs_install or needs_upgrade:
-            # Foundry's prebuilt binaries require glibc 2.34+ (Ubuntu 22.04+).
-            # Check before attempting install so we give a clear actionable error.
+        # 2. Foundry
+        if not _forge_available():
             glibc = _glibc_version()
             if glibc is not None and glibc < (2, 34):
                 return [types.TextContent(type="text", text=(
@@ -498,31 +701,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                     "Then re-run the BattleChain installer in PowerShell and try again."
                 ))]
 
-            if needs_install:
-                steps.append("Foundry: not found — installing...")
-                rc, out = _run(
-                    ["bash", "-c", "curl -L https://foundry.paradigm.xyz | bash -s -- --no-modify-path"],
-                )
-                if rc != 0:
-                    return [types.TextContent(type="text", text=f"Foundry installation failed.\n\n{out}")]
-            else:
-                steps.append("Foundry: found but needs upgrade for --browser support — updating...")
+            steps.append("Foundry: not found — installing...")
+            rc, out = _run(
+                ["bash", "-c", "curl -L https://foundry.paradigm.xyz | bash -s -- --no-modify-path"],
+            )
+            if rc != 0:
+                return [types.TextContent(type="text", text=f"Foundry installation failed.\n\n{out}")]
 
-            # Install/upgrade to latest nightly (required for --browser flag).
-            # foundryup defaults to stable; --install nightly gets nightly pre-built binaries.
-            rc, out = _run([str(FOUNDRY_BIN / "foundryup"), "--install", "nightly"])
+            rc, out = _run([str(FOUNDRY_BIN / "foundryup")])
             if rc != 0:
                 return [types.TextContent(type="text", text=f"foundryup failed.\n\n{out}")]
-
-            # Verify the upgrade actually gave us --browser support
-            if not _forge_has_browser():
-                return [types.TextContent(type="text", text=(
-                    "Foundry was upgraded but the installed version still does not support --browser.\n\n"
-                    "Please run this manually in WSL, then restart Claude Desktop:\n\n"
-                    "    foundryup --version nightly\n\n"
-                    "This demo requires forge >= 1.6.0-nightly (2026-03-10)."
-                ))]
-            steps.append("Foundry: upgraded to nightly")
+            steps.append("Foundry: installed")
         else:
             steps.append("Foundry (forge/cast): found")
 
@@ -548,7 +737,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
         return [types.TextContent(type="text", text=(
             "Environment ready!\n\n"
-            + "\n".join(f"  ✓ {s}" for s in steps)
+            + "\n".join(f"  \u2713 {s}" for s in steps)
             + "\n\nYou're all set. MetaMask will be used for signing transactions — "
             "make sure it's installed in your browser before the next step."
         ))]
@@ -559,16 +748,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
         def status(key: str) -> str:
             val = env.get(key, "")
-            return f"✓ {val}" if val else "✗ not set"
+            return f"\u2713 {val}" if val else "\u2717 not set"
 
-        token    = env.get("TOKEN_ADDRESS", "")
-        vault    = env.get("VAULT_ADDRESS", "")
+        token     = env.get("TOKEN_ADDRESS", "")
+        vault     = env.get("VAULT_ADDRESS", "")
         agreement = env.get("AGREEMENT_ADDRESS", "")
 
         lines = [
             "**BattleChain Demo Status**\n",
-            f"  MockToken:          {status('TOKEN_ADDRESS')}",
-            f"  VulnerableVault:    {status('VAULT_ADDRESS')}",
+            f"  MockToken:             {status('TOKEN_ADDRESS')}",
+            f"  VulnerableVault:       {status('VAULT_ADDRESS')}",
             f"  Safe Harbor agreement: {status('AGREEMENT_ADDRESS')}",
             "",
         ]
@@ -596,17 +785,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 "Skipping. Call create_agreement to continue."
             ))]
 
-        rc, out = forge_browser("script/Setup.s.sol")
+        rc, out = forge_sign_with_metamask("script/Setup.s.sol")
         if rc == -1:
-            return _needs_signing(out, "deploy_contracts")
+            return _needs_signing(out)
         if rc != 0:
             return [types.TextContent(type="text", text=f"Deployment failed.\n\n{out}")]
 
-        token = parse_address(out, "TOKEN_ADDRESS")
-        vault = parse_address(out, "VAULT_ADDRESS")
-        updates = {k: v for k, v in {"TOKEN_ADDRESS": token, "VAULT_ADDRESS": vault}.items() if v}
-        if updates:
-            write_env_values(updates)
+        env2 = read_env()
+        token = env2.get("TOKEN_ADDRESS")
+        vault = env2.get("VAULT_ADDRESS")
 
         if token and vault:
             return [types.TextContent(type="text", text=(
@@ -618,14 +805,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 "Ready for Step 2: creating the Safe Harbor security agreement."
             ))]
         return [types.TextContent(type="text", text=(
-            "Deployment ran but addresses couldn't be parsed from output.\n\n"
-            + out
+            "Deployment ran but contract addresses weren't found.\n\n" + out
         ))]
 
     # ── create_agreement ──────────────────────────────────────────────────────
     elif name == "create_agreement":
-        missing = missing_keys(["VAULT_ADDRESS"])
-        if missing:
+        if missing_keys(["VAULT_ADDRESS"]):
             return [types.TextContent(type="text", text="VulnerableVault not deployed yet. Run deploy_contracts first.")]
 
         env = read_env()
@@ -635,44 +820,42 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 "Skipping. Call request_and_approve_attack_mode to continue."
             ))]
 
-        rc, out = forge_browser("script/CreateAgreement.s.sol")
+        rc, out = forge_sign_with_metamask("script/CreateAgreement.s.sol")
         if rc == -1:
-            return _needs_signing(out, "create_agreement")
+            return _needs_signing(out)
         if rc != 0:
             return [types.TextContent(type="text", text=f"Agreement creation failed.\n\n{out}")]
 
-        agreement = parse_address(out, "AGREEMENT_ADDRESS")
+        agreement = read_env().get("AGREEMENT_ADDRESS")
         if agreement:
-            write_env_values({"AGREEMENT_ADDRESS": agreement})
             return [types.TextContent(type="text", text=(
                 "Step 2 complete!\n\n"
                 "A Safe Harbor security agreement has been created and registered on-chain.\n"
                 "This is the legal framework that makes the upcoming attack an authorized whitehat engagement "
-                "rather than a hack — the protocol has officially invited a security researcher to test it.\n\n"
+                "rather than a hack.\n\n"
                 f"  Agreement address: {agreement}\n\n"
                 "Ready for Step 3: requesting and approving attack mode."
             ))]
         return [types.TextContent(type="text", text=(
-            "Agreement creation ran but the address couldn't be parsed.\n\n" + out
+            "Agreement creation ran but the address wasn't found.\n\n" + out
         ))]
 
     # ── request_and_approve_attack_mode ───────────────────────────────────────
     elif name == "request_and_approve_attack_mode":
-        missing = missing_keys(["AGREEMENT_ADDRESS"])
-        if missing:
+        if missing_keys(["AGREEMENT_ADDRESS"]):
             return [types.TextContent(type="text", text="No agreement found. Run create_agreement first.")]
 
         # Request
-        rc, out = forge_browser("script/RequestAttackMode.s.sol")
+        rc, out = forge_sign_with_metamask("script/RequestAttackMode.s.sol")
         if rc == -1:
-            return _needs_signing(out, "request_and_approve_attack_mode")
+            return _needs_signing(out)
         if rc != 0:
             return [types.TextContent(type="text", text=f"Attack mode request failed.\n\n{out}")]
 
         # Approve via testnet mock moderator
-        rc2, out2 = forge_browser("script/ApproveAttackMode.s.sol")
+        rc2, out2 = forge_sign_with_metamask("script/ApproveAttackMode.s.sol")
         if rc2 == -1:
-            return _needs_signing(out2, "request_and_approve_attack_mode")
+            return _needs_signing(out2)
         if rc2 != 0:
             return [types.TextContent(type="text", text=(
                 "Attack mode was requested but approval failed.\n\n" + out2
@@ -681,8 +864,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         return [types.TextContent(type="text", text=(
             "Step 3 complete!\n\n"
             "The protocol is now officially in attack mode.\n\n"
-            "  Request submitted: ✓\n"
-            "  Testnet moderator approved: ✓\n"
+            "  Request submitted: \u2713\n"
+            "  Testnet moderator approved: \u2713\n"
             "  Agreement state: UNDER_ATTACK\n\n"
             "The vault is open for the authorized whitehat attack. "
             "When you're ready, confirm with the user before proceeding to Step 4."
@@ -694,24 +877,25 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         if not wallet:
             return [types.TextContent(type="text", text="wallet_address is required.")]
         if not re.match(r"^0x[0-9a-fA-F]{40}$", wallet):
-            return [types.TextContent(type="text", text=f"That doesn't look like a valid wallet address: {wallet!r}\nIt should start with 0x and be 42 characters long.")]
+            return [types.TextContent(type="text", text=(
+                f"That doesn't look like a valid wallet address: {wallet!r}\n"
+                "It should start with 0x and be 42 characters long."
+            ))]
 
-        missing = missing_keys(["TOKEN_ADDRESS", "VAULT_ADDRESS"])
-        if missing:
+        if missing_keys(["TOKEN_ADDRESS", "VAULT_ADDRESS"]):
             return [types.TextContent(type="text", text="Contracts not deployed. Run deploy_contracts first.")]
 
-        # Set wallet as both attacker (SENDER_ADDRESS) and recovery recipient
         write_env_values({"SENDER_ADDRESS": wallet, "RECOVERY_ADDRESS": wallet})
 
-        rc, out = forge_browser("script/Attack.s.sol")
+        rc, out = forge_sign_with_metamask("script/Attack.s.sol")
         if rc == -1:
-            return _needs_signing(out, "execute_attack")
+            return _needs_signing(out)
         if rc != 0:
             return [types.TextContent(type="text", text=f"Attack failed.\n\n{out}")]
 
-        before  = parse_number(out, "Vault before")
-        after   = parse_number(out, "Vault after")
-        bounty  = parse_number(out, "Bounty kept")
+        before   = parse_number(out, "Vault before")
+        after    = parse_number(out, "Vault after")
+        bounty   = parse_number(out, "Bounty kept")
         returned = parse_number(out, "Returned to protocol")
 
         if any([before, after, bounty, returned]):
@@ -720,8 +904,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 "Here's what happened:\n\n"
                 f"  Vault balance before the attack:  {before or '?'} tokens\n"
                 f"  Vault balance after the attack:   {after or '?'} tokens\n\n"
-                f"  Your whitehat bounty (10%):       {bounty or '?'} tokens  → sent to your wallet\n"
-                f"  Returned to the protocol (90%):   {returned or '?'} tokens → sent to your wallet\n\n"
+                f"  Your whitehat bounty (10%):       {bounty or '?'} tokens  \u2192 sent to your wallet\n"
+                f"  Returned to the protocol (90%):   {returned or '?'} tokens \u2192 sent to your wallet\n\n"
                 "The full BattleChain demo is complete!\n\n"
                 "What just happened under the hood:\n"
                 "  1. A reentrancy vulnerability was exploited in the vault contract\n"
@@ -734,8 +918,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
     # ── check_agreement_state ─────────────────────────────────────────────────
     elif name == "check_agreement_state":
-        missing = missing_keys(["AGREEMENT_ADDRESS"])
-        if missing:
+        if missing_keys(["AGREEMENT_ADDRESS"]):
             return [types.TextContent(type="text", text="No agreement found. Run create_agreement first.")]
 
         agreement = read_env()["AGREEMENT_ADDRESS"]
