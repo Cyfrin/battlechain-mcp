@@ -192,7 +192,21 @@ def forge_browser(script_path: str) -> tuple[int, str]:
     result = subprocess.run(
         cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, env=env
     )
-    return result.returncode, result.stdout + result.stderr
+    combined = result.stdout + result.stderr
+
+    # If forge failed, look for the signing URL in the output so Claude can
+    # tell the user to open it manually if the automatic browser launch missed.
+    if result.returncode != 0:
+        url_match = re.search(r"https?://\S+", combined)
+        if url_match:
+            signing_url = url_match.group(0).rstrip(".,;)")
+            combined = (
+                f"SIGNING URL (open this in your browser if MetaMask didn't appear):\n"
+                f"  {signing_url}\n\n"
+                + combined
+            )
+
+    return result.returncode, combined
 
 
 def cast_call(address: str, sig: str, *args: str) -> tuple[int, str]:
