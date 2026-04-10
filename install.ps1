@@ -8,9 +8,10 @@ $ErrorActionPreference = "Stop"
 Write-Host "Installing BattleChain..."
 
 # ── Install Python package inside WSL ─────────────────────────────────────────
+# Redirect stderr to suppress pip PATH warnings that PowerShell misreads as errors.
 $installed = $false
 foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13")) {
-    $result = wsl -- $py -m pip install "git+https://github.com/Cyfrin/battlechain-mcp.git" --quiet 2>&1
+    wsl -- $py -m pip install "git+https://github.com/Cyfrin/battlechain-mcp.git" --quiet 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         $installed = $true
         break
@@ -37,7 +38,8 @@ if (-not ($cfg.PSObject.Properties.Name -contains "mcpServers")) {
     $cfg | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{})
 }
 
-$bcEntry = [PSCustomObject]@{ command = "wsl"; args = @("battlechain-mcp") }
+# Use `bash -lc` so WSL starts a login shell that includes ~/.local/bin in PATH
+$bcEntry = [PSCustomObject]@{ command = "wsl"; args = @("bash", "-lc", "battlechain-mcp") }
 
 if ($cfg.mcpServers.PSObject.Properties.Name -contains "battlechain") {
     $cfg.mcpServers.battlechain = $bcEntry
