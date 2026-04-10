@@ -336,8 +336,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         # 1. Git
         if not _git_available():
             return [types.TextContent(type="text", text=(
-                "git is not installed on this machine. "
-                "Please install Git from https://git-scm.com and restart Claude Desktop."
+                "SETUP ERROR: git is not installed in WSL.\n\n"
+                "Open a WSL terminal and run:\n\n"
+                "    sudo apt-get install -y git\n\n"
+                "Then come back and try again."
             ))]
         steps.append("git: found")
 

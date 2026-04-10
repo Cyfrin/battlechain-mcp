@@ -11,7 +11,7 @@ Write-Host "Installing BattleChain..."
 $pythonVersion = $null
 foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13", "python3")) {
     # Bootstrap pip via ensurepip if it isn't installed, then install the package.
-    wsl -- bash -c "$py -m ensurepip --upgrade 2>/dev/null; $py -m pip install 'git+https://github.com/Cyfrin/battlechain-mcp.git' --force-reinstall --quiet 2>/dev/null"
+    wsl -- bash -c "$py -m ensurepip --upgrade 2>/dev/null; $py -m pip install 'https://github.com/Cyfrin/battlechain-mcp/archive/refs/heads/main.zip' --force-reinstall --quiet 2>/dev/null"
     if ($LASTEXITCODE -eq 0) {
         # Verify this is actually 3.10+ before accepting it
         $ver = wsl -- bash -c "$py -c 'import sys; print(sys.version_info >= (3,10))' 2>/dev/null"

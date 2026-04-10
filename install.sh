@@ -25,7 +25,7 @@ fi
 
 # ── Install the Python package ─────────────────────────────────────────────────
 echo "Installing BattleChain..."
-"$PYTHON" -m pip install "git+https://github.com/Cyfrin/battlechain-mcp.git" --force-reinstall --quiet
+"$PYTHON" -m pip install "https://github.com/Cyfrin/battlechain-mcp/archive/refs/heads/main.zip" --force-reinstall --quiet
 
 # ── Resolve config path ───────────────────────────────────────────────────────
 if grep -qi microsoft /proc/version 2>/dev/null; then
