@@ -6,11 +6,11 @@
 Write-Host "Installing BattleChain..."
 
 # ── Install Python package inside WSL ─────────────────────────────────────────
-# *>&1 | Out-Null suppresses all streams so pip's stderr warnings don't get
-# misread as PowerShell errors (NativeCommandError).
+# Run inside bash with 2>/dev/null so stderr never reaches PowerShell.
+# Calling wsl -- python3.x directly leaks stderr as NativeCommandError.
 $installed = $false
 foreach ($py in @("python3.11", "python3.12", "python3.10", "python3.13")) {
-    wsl -- $py -m pip install "git+https://github.com/Cyfrin/battlechain-mcp.git" --quiet *>&1 | Out-Null
+    wsl -- bash -c "$py -m pip install 'git+https://github.com/Cyfrin/battlechain-mcp.git' --quiet 2>/dev/null"
     if ($LASTEXITCODE -eq 0) {
         $installed = $true
         break
