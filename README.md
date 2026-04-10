@@ -21,8 +21,9 @@ Restart Claude Desktop when it finishes.
 Paste this into Claude Desktop:
 
 ```
-Run the BattleChain security demo. Walk me through the whole thing step by step
-and ask me to confirm before the attack. I have MetaMask installed.
+Use your battlechain tools to run the security demo. Start by calling
+prepare_environment right now, then walk me through each step in plain
+English. I have MetaMask. Ask me to confirm before the attack.
 ```
 
 Claude handles everything from there.

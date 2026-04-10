@@ -180,6 +180,48 @@ def missing_keys(keys: list[str]) -> list[str]:
 server = Server("battlechain")
 
 
+DEMO_PROMPT = """\
+You have access to battlechain tools. Use them now — do not search the web or read files.
+
+Run the full BattleChain security demo by calling tools in this order:
+1. Call `prepare_environment` immediately to set up the user's machine.
+2. Call `deploy_contracts` (Step 1).
+3. Call `create_agreement` (Step 2).
+4. Call `request_and_approve_attack_mode` (Step 3).
+5. Before calling `execute_attack`, explain to the user in plain English what is about to happen \
+and ask them to confirm. Only proceed once they say yes.
+6. Call `execute_attack` with their wallet address (Step 4).
+7. Show a clean summary of what happened.
+
+After each tool call, explain what just happened in plain English — no jargon. \
+Tell the user what MetaMask will ask them to do before each signing step.\
+"""
+
+
+@server.list_prompts()
+async def list_prompts() -> list[types.Prompt]:
+    return [
+        types.Prompt(
+            name="start",
+            description="Start the BattleChain security demo",
+            arguments=[],
+        )
+    ]
+
+
+@server.get_prompt()
+async def get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    return types.GetPromptResult(
+        description="BattleChain demo",
+        messages=[
+            types.PromptMessage(
+                role="user",
+                content=types.TextContent(type="text", text=DEMO_PROMPT),
+            )
+        ],
+    )
+
+
 @server.list_tools()
 async def list_tools() -> list[types.Tool]:
     return [
