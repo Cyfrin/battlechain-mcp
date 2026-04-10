@@ -172,10 +172,13 @@ def _wsl_browser_script() -> str:
     script_path = Path("/tmp/battlechain-browser.sh")
     wslview = subprocess.run(["which", "wslview"], capture_output=True, text=True)
     if wslview.returncode == 0:
-        opener = "wslview"
+        # wslu package provides wslview — purpose-built for this exact use case
+        script_path.write_text('#!/bin/sh\nwslview "$1"\n')
     else:
-        opener = "/mnt/c/Windows/explorer.exe"
-    script_path.write_text(f'#!/bin/sh\n{opener} "$1"\n')
+        # cmd.exe /c start is the most reliable URL opener from WSL
+        script_path.write_text(
+            '#!/bin/sh\n/mnt/c/Windows/System32/cmd.exe /c start "" "$1" 2>/dev/null\n'
+        )
     script_path.chmod(0o755)
     return str(script_path)
 
@@ -194,17 +197,17 @@ def forge_browser(script_path: str) -> tuple[int, str]:
     )
     combined = result.stdout + result.stderr
 
-    # If forge failed, look for the signing URL in the output so Claude can
-    # tell the user to open it manually if the automatic browser launch missed.
+    # If forge failed, surface the signing URL prominently and include all output
+    # so Claude can show the user exactly what to open if the browser launch missed.
     if result.returncode != 0:
-        url_match = re.search(r"https?://\S+", combined)
-        if url_match:
-            signing_url = url_match.group(0).rstrip(".,;)")
-            combined = (
-                f"SIGNING URL (open this in your browser if MetaMask didn't appear):\n"
-                f"  {signing_url}\n\n"
-                + combined
-            )
+        url_match = re.search(r"https?://[^\s\"']+", combined)
+        signing_url = url_match.group(0).rstrip(".,;)") if url_match else None
+        header = (
+            f"SIGNING URL — open this in your MetaMask browser:\n  {signing_url}\n\n"
+            if signing_url else
+            "No signing URL found in forge output — see raw output below.\n\n"
+        )
+        combined = header + "RAW FORGE OUTPUT:\n" + combined
 
     return result.returncode, combined
 
