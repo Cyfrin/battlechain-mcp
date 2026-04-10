@@ -6,10 +6,16 @@
 
 ---
 
-## Setup (one terminal command)
+## Setup (one command)
 
+**macOS or Linux** — run in Terminal:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Cyfrin/battlechain-mcp/main/install.sh | bash
+```
+
+**WSL** — run in PowerShell (Windows Terminal), not inside WSL:
+```powershell
+irm https://raw.githubusercontent.com/Cyfrin/battlechain-mcp/main/install.ps1 | iex
 ```
 
 Restart Claude Desktop when it finishes.
