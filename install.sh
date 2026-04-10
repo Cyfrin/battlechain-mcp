@@ -10,7 +10,13 @@ pip3 install battlechain-mcp --quiet 2>/dev/null \
 # WSL: Claude Desktop runs on Windows, so we write to the Windows AppData path
 # and invoke the command via `wsl battlechain-mcp`.
 if grep -qi microsoft /proc/version 2>/dev/null; then
-  WINDOWS_APPDATA="$(cmd.exe /c "echo %APPDATA%" 2>/dev/null | tr -d '\r')"
+  # powershell.exe is more reliable than cmd.exe for resolving Windows env vars from WSL
+  WINDOWS_APPDATA="$(powershell.exe -NoProfile -Command '[Environment]::GetFolderPath("ApplicationData")' 2>/dev/null | tr -d '\r\n')"
+  if [[ -z "$WINDOWS_APPDATA" ]]; then
+    echo "Error: could not resolve Windows AppData path from WSL."
+    echo "Please run the install script from a native macOS or Linux terminal, or manually add the config."
+    exit 1
+  fi
   CONFIG="$(wslpath "$WINDOWS_APPDATA")/Claude/claude_desktop_config.json"
   MCP_COMMAND="wsl"
   MCP_ARGS='["battlechain-mcp"]'
