@@ -254,11 +254,11 @@ _SIGNING_HTML = """\
   }
 
   // 4. Poll until transactions are ready
-  let txs;
+  let txs, addresses = {};
   for (;;) {
     let r;
     try { r = await fetch('/txs'); } catch(e) { await sleep(1000); continue; }
-    if (r.status === 200) { txs = (await r.json()).transactions; break; }
+    if (r.status === 200) { const payload = await r.json(); txs = payload.transactions; addresses = payload.addresses || {}; break; }
     if (r.status === 500) {
       set('Transaction preparation failed.', await r.text(), 'err'); return;
     }
@@ -315,8 +315,10 @@ _SIGNING_HTML = """\
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({hashes, address}),
   });
-  set('\u2713 All ' + hashes.length + ' transaction(s) submitted!',
-      'You can close this tab and return to Claude.', 'ok');
+  const addrLines = Object.entries(addresses).map(([k,v]) => k + ': ' + v).join('  |  ');
+  const hashLines = hashes.map((h,i) => 'tx'+(i+1)+': '+h).join('  |  ');
+  set('\u2713 All ' + hashes.length + ' transaction(s) in BattleChain mempool',
+      (addrLines ? 'Contracts: ' + addrLines + '  ||  ' : '') + 'Hashes: ' + hashLines, 'ok');
 })();
 </script>
 </body>
@@ -340,7 +342,8 @@ class _SigningHandler(http.server.BaseHTTPRequestHandler):
             if err is not None:
                 self._send(500, "text/plain", err.encode())
             elif txs is not None:
-                self._send(200, "application/json", json.dumps({"transactions": txs}).encode())
+                payload = {"transactions": txs, "addresses": self.server._env_updates}
+                self._send(200, "application/json", json.dumps(payload).encode())
             else:
                 self._send(202, "text/plain", b"")
         else:
