@@ -230,11 +230,23 @@ _SIGNING_HTML = """\
         set('Could not add BattleChain network.', e2.message, 'err');
         return;
       }
+    } else if (e.code !== undefined) {
+      set('Chain switch error (code ' + e.code + ')', e.message, 'err');
+      return;
     }
   }
 
+  // Confirm network after switch
+  const activeChain = window.ethereum.chainId;
+  if (activeChain && activeChain.toLowerCase() !== chainHex.toLowerCase()) {
+    set('Wrong network in MetaMask!',
+        'Expected ' + chainHex + ' (BattleChain) but MetaMask is on ' + activeChain +
+        '. Switch to BattleChain Testnet and refresh.', 'err');
+    return;
+  }
+
   // 3. Send address to server so it can run forge dry-run
-  set('Connected: ' + address, 'Preparing transactions\u2026');
+  set('Connected: ' + address, 'Chain: ' + activeChain + ' \u2713 | Preparing transactions\u2026');
   try {
     await fetch('/connect', {
       method: 'POST',
@@ -268,7 +280,7 @@ _SIGNING_HTML = """\
     set('Sign transaction ' + (i+1) + ' of ' + txs.length + ' in MetaMask\u2026',
         tx.description ? 'Action: ' + tx.description : '');
     let gasPrice = '0x1';
-    try { gasPrice = await window.ethereum.request({method: 'eth_gasPrice'}); } catch(e) {}
+    try { gasPrice = (await window.ethereum.request({method: 'eth_gasPrice'})) || '0x1'; } catch(e) {}
     const params = {from: address, data: tx.data, value: tx.value || '0x0',
                     gas: '0x2DC6C0', gasPrice: gasPrice};
     if (tx.to) params.to = tx.to;
@@ -279,7 +291,24 @@ _SIGNING_HTML = """\
       set('Transaction ' + (i+1) + ' rejected.', e.message, 'err'); return;
     }
     hashes.push(hash);
-    dt.textContent = '\u2713 tx ' + (i+1) + ': ' + hash.slice(0, 12) + '\u2026';
+    dt.textContent = 'Tx ' + (i+1) + ' sent (' + hash.slice(0,10) + '\u2026) \u2014 verifying on BattleChain\u2026';
+
+    // Verify tx reached BattleChain node
+    let found = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await sleep(2000);
+      try {
+        const txData = await window.ethereum.request({method: 'eth_getTransactionByHash', params: [hash]});
+        if (txData) { found = true; break; }
+      } catch(e) {}
+    }
+    if (!found) {
+      set('TX ' + (i+1) + ' NOT found on BattleChain after 12s!',
+          'Chain: ' + window.ethereum.chainId + '\nHash: ' + hash +
+          '\nMetaMask signed but tx is not in BattleChain mempool.', 'err');
+      return;
+    }
+    dt.textContent = '\u2713 tx ' + (i+1) + ' confirmed in mempool (' + hash.slice(0,10) + '\u2026)';
   }
 
   // 6. Report back and done
