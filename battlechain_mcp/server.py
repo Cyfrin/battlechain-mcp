@@ -24,7 +24,7 @@ from mcp.server import Server
 
 # ── Paths & constants ─────────────────────────────────────────────────────────
 
-STARTER_REPO_URL = "https://github.com/Cyfrin/battlechain-starter.git"
+STARTER_REPO_URL = "https://github.com/Cyfrin/battlechain-starter-foundry.git"
 BATTLECHAIN_DIR  = Path.home() / ".battlechain"
 PROJECT_ROOT     = BATTLECHAIN_DIR / "starter"
 ENV_FILE         = PROJECT_ROOT / ".env"
@@ -487,13 +487,14 @@ def _dry_run_forge(script_path: str, sender: str) -> tuple[list, dict, str]:
 
 def _verify_txs(hashes: list[str]) -> tuple[bool, str]:
     """
-    Verify each tx landed on BattleChain via direct JSON-RPC (no cast subprocess).
+    Verify each tx landed on BattleChain and did not revert.
+    Uses eth_getTransactionReceipt (status 0x1 = success, 0x0 = reverted).
     Returns (True, "") on success or (False, diagnostic_message) on failure.
     """
     for h in hashes:
         try:
             body = json.dumps({
-                "jsonrpc": "2.0", "method": "eth_getTransactionByHash",
+                "jsonrpc": "2.0", "method": "eth_getTransactionReceipt",
                 "params": [h], "id": 1,
             }).encode()
             req = urllib.request.Request(
@@ -501,13 +502,23 @@ def _verify_txs(hashes: list[str]) -> tuple[bool, str]:
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read())
-            if data.get("result") is None:
+            receipt = data.get("result")
+            if receipt is None:
                 return False, (
                     f"Transaction not found on BattleChain testnet.\n\n"
                     f"Hash: {h}\n\n"
                     "MetaMask submitted the transaction but it did not reach the BattleChain RPC. "
                     "Try opening MetaMask → Settings → Advanced → Reset Account to clear any "
                     "stuck pending transactions, then run deploy_contracts again."
+                )
+            if receipt.get("status") == "0x0":
+                return False, (
+                    f"Transaction reverted on-chain.\n\n"
+                    f"Hash: {h}\n\n"
+                    "The transaction was accepted by BattleChain but the contract call reverted. "
+                    "This usually means a precondition failed (e.g. contract already deployed at "
+                    "that address, or wrong state). Check that you are not re-running a step that "
+                    "already completed."
                 )
         except Exception:
             # RPC unreachable — proceed optimistically so we don't block the flow
