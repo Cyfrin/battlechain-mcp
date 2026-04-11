@@ -447,7 +447,6 @@ def _dry_run_forge(script_path: str, sender: str) -> tuple[list, dict, str]:
         "--chain", CHAIN_ID,
         "--legacy",
         "--skip-simulation",
-        "-g", "300",
     ]
     env = _subprocess_env()
     env["SENDER_ADDRESS"] = sender
