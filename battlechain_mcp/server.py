@@ -443,6 +443,52 @@ def _dry_run_forge(script_path: str, sender: str) -> tuple[list, dict, str]:
     return txs, env_updates, ""
 
 
+def _verify_txs(hashes: list[str]) -> tuple[bool, str]:
+    """
+    Wait for each tx to be mined and confirm it succeeded (status 0x1).
+    Returns (True, "") on success or (False, error_message) on failure.
+    """
+    _ensure_foundry_in_path()
+    env = _subprocess_env()
+    for h in hashes:
+        try:
+            result = subprocess.run(
+                ["cast", "receipt", h, "--json", "--rpc-url", RPC_URL],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=90,
+            )
+        except subprocess.TimeoutExpired:
+            return False, (
+                f"Timed out waiting for transaction {h[:16]}… to be mined.\n\n"
+                "This usually means the transaction was sent to the wrong network, "
+                "or the BattleChain RPC is unreachable.\n\n"
+                "Check that MetaMask is connected to BattleChain Testnet "
+                "(RPC: https://testnet.battlechain.com:3051, Chain ID: 627)."
+            )
+        if result.returncode != 0:
+            return False, (
+                f"Could not fetch receipt for {h[:16]}…\n\n"
+                f"{result.stdout}{result.stderr}\n\n"
+                "The transaction may not have reached the BattleChain testnet. "
+                "Verify MetaMask is on the correct network (Chain ID: 627)."
+            )
+        try:
+            receipt = json.loads(result.stdout)
+            if receipt.get("status") == "0x0":
+                return False, (
+                    f"Transaction {h[:16]}… was mined but REVERTED on-chain.\n\n"
+                    "The transaction failed. This can happen if the contracts "
+                    "were already deployed with a different wallet — try running "
+                    "prepare_environment again to start fresh."
+                )
+        except json.JSONDecodeError:
+            pass  # non-JSON output from old cast versions — assume success
+    return True, ""
+
+
 def _open_browser(url: str) -> None:
     if _is_wsl():
         if subprocess.run(["which", "wslview"], capture_output=True).returncode == 0:
@@ -485,6 +531,11 @@ def forge_sign_with_metamask(script_path: str) -> tuple[int, str]:
         hashes = result.get("hashes", [])
         if not hashes:
             return 1, "No transaction hashes received — MetaMask may have rejected the transactions."
+
+        ok, err = _verify_txs(hashes)
+        if not ok:
+            return 1, err
+
         return 0, "Signed " + str(len(hashes)) + " transaction(s).\nHashes:\n" + "\n".join(hashes)
 
     # ── First call: start server and open browser ─────────────────────────────
@@ -682,13 +733,16 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             except Exception:
                 pass
         _signing_servers.clear()
-        write_env_values({
-            "TOKEN_ADDRESS": "",
-            "VAULT_ADDRESS": "",
-            "AGREEMENT_ADDRESS": "",
-            "SENDER_ADDRESS": "",
-            "RECOVERY_ADDRESS": "",
-        })
+        # Only clear .env if the project directory already exists
+        # (on first run the directory hasn't been created yet)
+        if ENV_FILE.exists():
+            write_env_values({
+                "TOKEN_ADDRESS": "",
+                "VAULT_ADDRESS": "",
+                "AGREEMENT_ADDRESS": "",
+                "SENDER_ADDRESS": "",
+                "RECOVERY_ADDRESS": "",
+            })
         steps.append("Previous demo state cleared")
 
         # 1. Git
