@@ -675,6 +675,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
     if name == "prepare_environment":
         steps = []
 
+        # 0. Reset any previous demo state so every run is a clean slate
+        for srv in list(_signing_servers.values()):
+            try:
+                srv.shutdown()
+            except Exception:
+                pass
+        _signing_servers.clear()
+        write_env_values({
+            "TOKEN_ADDRESS": "",
+            "VAULT_ADDRESS": "",
+            "AGREEMENT_ADDRESS": "",
+            "SENDER_ADDRESS": "",
+            "RECOVERY_ADDRESS": "",
+        })
+        steps.append("Previous demo state cleared")
+
         # 1. Git
         if not _git_available():
             return [types.TextContent(type="text", text=(
