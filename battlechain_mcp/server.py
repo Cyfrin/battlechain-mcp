@@ -395,8 +395,10 @@ class _SigningHandler(http.server.BaseHTTPRequestHandler):
 class _SigningServer(socketserver.TCPServer):
     allow_reuse_address = True
 
-    def __init__(self, script_path: str) -> None:
-        self.script_path = script_path
+    def __init__(self, script_paths: "list[str] | str") -> None:
+        if isinstance(script_paths, str):
+            script_paths = [script_paths]
+        self.script_paths = script_paths
         self._wallet_address: str | None = None
         self._txs: list | None = None
         self._forge_error: str | None = None
@@ -410,17 +412,24 @@ class _SigningServer(socketserver.TCPServer):
         self.url = f"http://127.0.0.1:{port}/"
 
     def _run_forge(self, sender: str) -> None:
-        try:
-            txs, env_updates, error = _dry_run_forge(self.script_path, sender)
-            with self._lock:
+        all_txs: list = []
+        all_env_updates: dict[str, str] = {}
+        for path in self.script_paths:
+            try:
+                txs, env_updates, error = _dry_run_forge(path, sender)
                 if error:
-                    self._forge_error = error
-                else:
-                    self._env_updates = env_updates
-                    self._txs = txs
-        except Exception as exc:
-            with self._lock:
-                self._forge_error = str(exc)
+                    with self._lock:
+                        self._forge_error = error
+                    return
+                all_txs.extend(txs)
+                all_env_updates.update(env_updates)
+            except Exception as exc:
+                with self._lock:
+                    self._forge_error = str(exc)
+                return
+        with self._lock:
+            self._env_updates = all_env_updates
+            self._txs = all_txs
 
     def wait(self, timeout: int = 300) -> dict | None:
         self._done_event.wait(timeout=timeout)
@@ -546,16 +555,20 @@ def _open_browser(url: str) -> None:
         webbrowser.open(url)
 
 
-def forge_sign_with_metamask(script_path: str) -> tuple[int, str]:
+def forge_sign_with_metamask(script_paths: "list[str] | str") -> tuple[int, str]:
     """
-    Start (or check) a MetaMask signing session for the given forge script.
+    Start (or check) a MetaMask signing session for one or more forge scripts.
+    Multiple scripts are dry-run in order and their transactions combined into
+    one signing page.
 
     First call:  starts a local HTTP server, opens the signing page in the
                  browser, and returns (-1, url) so Claude can show the link.
     Second call: checks whether the user has finished signing.
                  Returns (0, output) on success or (1, error) on failure.
     """
-    key = Path(script_path).name
+    if isinstance(script_paths, str):
+        script_paths = [script_paths]
+    key = "+".join(Path(p).name for p in script_paths)
 
     # ── Second call: collect result ───────────────────────────────────────────
     if key in _signing_servers:
@@ -588,7 +601,7 @@ def forge_sign_with_metamask(script_path: str) -> tuple[int, str]:
         return 0, "Signed " + str(len(hashes)) + " transaction(s).\nHashes:\n" + "\n".join(hashes)
 
     # ── First call: start server and open browser ─────────────────────────────
-    srv = _SigningServer(script_path)
+    srv = _SigningServer(script_paths)
     _signing_servers[key] = srv
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
@@ -970,21 +983,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         if missing_keys(["AGREEMENT_ADDRESS"]):
             return [types.TextContent(type="text", text="No agreement found. Run create_agreement first.")]
 
-        # Request
-        rc, out = forge_sign_with_metamask("script/RequestAttackMode.s.sol")
+        # Both transactions in one MetaMask signing session: request then approve.
+        rc, out = forge_sign_with_metamask([
+            "script/RequestAttackMode.s.sol",
+            "script/ApproveAttackMode.s.sol",
+        ])
         if rc == -1:
             return _needs_signing(out)
         if rc != 0:
-            return [types.TextContent(type="text", text=f"Attack mode request failed.\n\n{out}")]
-
-        # Approve via testnet mock moderator
-        rc2, out2 = forge_sign_with_metamask("script/ApproveAttackMode.s.sol")
-        if rc2 == -1:
-            return _needs_signing(out2)
-        if rc2 != 0:
-            return [types.TextContent(type="text", text=(
-                "Attack mode was requested but approval failed.\n\n" + out2
-            ))]
+            return [types.TextContent(type="text", text=f"Attack mode failed.\n\n{out}")]
 
         return [types.TextContent(type="text", text=(
             "Step 3 complete!\n\n"
