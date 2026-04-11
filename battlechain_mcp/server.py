@@ -445,47 +445,59 @@ def _dry_run_forge(script_path: str, sender: str) -> tuple[list, dict, str]:
 
 def _verify_txs(hashes: list[str]) -> tuple[bool, str]:
     """
-    Wait for each tx to be mined and confirm it succeeded (status 0x1).
-    Returns (True, "") on success or (False, error_message) on failure.
+    Verify each tx landed on BattleChain and was mined successfully.
+    Returns (True, "") on success or (False, diagnostic_message) on failure.
     """
     _ensure_foundry_in_path()
     env = _subprocess_env()
     for h in hashes:
+        # ── Step 1: quick existence check (does this hash exist on BattleChain?) ──
+        try:
+            r = subprocess.run(
+                ["cast", "tx", h, "--rpc-url", RPC_URL],
+                cwd=PROJECT_ROOT, capture_output=True, text=True, env=env, timeout=15,
+            )
+            tx_exists = r.returncode == 0 and r.stdout.strip()
+        except subprocess.TimeoutExpired:
+            return False, (
+                f"BattleChain RPC timed out checking transaction {h[:16]}…\n\n"
+                f"RPC: {RPC_URL}"
+            )
+
+        if not tx_exists:
+            return False, (
+                f"Transaction not found on BattleChain testnet.\n\n"
+                f"Hash: {h}\n\n"
+                "MetaMask submitted the transaction but it did not reach the BattleChain RPC. "
+                "This typically means MetaMask sent it to a different network despite showing BattleChain. "
+                "Try opening MetaMask, going to Settings → Advanced → Reset Account to clear any "
+                "stuck pending transactions, then run deploy_contracts again."
+            )
+
+        # ── Step 2: wait for the tx to be mined ──────────────────────────────────
         try:
             result = subprocess.run(
                 ["cast", "receipt", h, "--json", "--rpc-url", RPC_URL],
-                cwd=PROJECT_ROOT,
-                capture_output=True,
-                text=True,
-                env=env,
-                timeout=90,
+                cwd=PROJECT_ROOT, capture_output=True, text=True, env=env, timeout=120,
             )
         except subprocess.TimeoutExpired:
             return False, (
-                f"Timed out waiting for transaction {h[:16]}… to be mined.\n\n"
-                "This usually means the transaction was sent to the wrong network, "
-                "or the BattleChain RPC is unreachable.\n\n"
-                "Check that MetaMask is connected to BattleChain Testnet "
-                "(RPC: https://testnet.battlechain.com:3051, Chain ID: 627)."
+                f"Transaction {h[:16]}… is on BattleChain but has not been mined after 2 minutes.\n\n"
+                "It may be stuck in the mempool due to a nonce conflict from a previous attempt. "
+                "Open MetaMask → Settings → Advanced → Reset Account to clear stuck transactions, "
+                "then run deploy_contracts again."
             )
         if result.returncode != 0:
-            return False, (
-                f"Could not fetch receipt for {h[:16]}…\n\n"
-                f"{result.stdout}{result.stderr}\n\n"
-                "The transaction may not have reached the BattleChain testnet. "
-                "Verify MetaMask is on the correct network (Chain ID: 627)."
-            )
+            return False, f"Could not get receipt for {h[:16]}…\n\n{result.stdout}{result.stderr}"
         try:
             receipt = json.loads(result.stdout)
             if receipt.get("status") == "0x0":
                 return False, (
                     f"Transaction {h[:16]}… was mined but REVERTED on-chain.\n\n"
-                    "The transaction failed. This can happen if the contracts "
-                    "were already deployed with a different wallet — try running "
-                    "prepare_environment again to start fresh."
+                    "The contract call failed. Run prepare_environment again to start fresh."
                 )
         except json.JSONDecodeError:
-            pass  # non-JSON output from old cast versions — assume success
+            pass
     return True, ""
 
 
@@ -517,24 +529,27 @@ def forge_sign_with_metamask(script_path: str) -> tuple[int, str]:
         if not srv._done_event.is_set():
             return -1, srv.url  # still waiting — return url again
         result = srv._result or {}
+        env_updates = srv._env_updates  # capture before shutdown
         srv.shutdown()
         del _signing_servers[key]
-
-        addr = result.get("address", "")
-        updates: dict[str, str] = {}
-        if addr:
-            updates["SENDER_ADDRESS"] = addr
-        updates.update(srv._env_updates)
-        if updates:
-            write_env_values(updates)
 
         hashes = result.get("hashes", [])
         if not hashes:
             return 1, "No transaction hashes received — MetaMask may have rejected the transactions."
 
+        # Verify every tx actually landed on BattleChain before writing addresses
         ok, err = _verify_txs(hashes)
         if not ok:
             return 1, err
+
+        # All txs confirmed — now persist addresses
+        addr = result.get("address", "")
+        updates: dict[str, str] = {}
+        if addr:
+            updates["SENDER_ADDRESS"] = addr
+        updates.update(env_updates)
+        if updates:
+            write_env_values(updates)
 
         return 0, "Signed " + str(len(hashes)) + " transaction(s).\nHashes:\n" + "\n".join(hashes)
 
@@ -542,7 +557,10 @@ def forge_sign_with_metamask(script_path: str) -> tuple[int, str]:
     srv = _SigningServer(script_path)
     _signing_servers[key] = srv
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    _open_browser(srv.url)
+    try:
+        _open_browser(srv.url)
+    except Exception:
+        pass  # URL is returned below; Claude will show it if browser didn't auto-open
     return -1, srv.url
 
 
