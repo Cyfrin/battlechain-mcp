@@ -206,6 +206,13 @@ _SIGNING_HTML = """\
   }
   const address = accounts[0];
 
+  // 1b. Verify MetaMask chainId matches BattleChain directly
+  const RPC_URL = 'https://testnet.battlechain.com:3051';
+  const bcRpc = (method, params) => fetch(RPC_URL, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({jsonrpc: '2.0', method, params: params || [], id: 1}),
+  }).then(r => r.json()).then(d => d.result);
+
   // 2. Switch to / add BattleChain testnet
   const chainHex = '0x' + (CHAIN_ID_INT).toString(16);
   try {
@@ -279,7 +286,28 @@ _SIGNING_HTML = """\
       set('Transaction ' + (i+1) + ' rejected.', e.message, 'err'); return;
     }
     hashes.push(hash);
-    dt.textContent = '\u2713 tx ' + (i+1) + ': ' + hash.slice(0, 12) + '\u2026';
+
+    // Verify directly against BattleChain RPC (CORS open) — bypasses MetaMask routing
+    dt.textContent = 'Checking tx ' + (i+1) + ' on BattleChain\u2026';
+    let onChain = false;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await sleep(2000);
+      try {
+        const txData = await bcRpc('eth_getTransactionByHash', [hash]);
+        if (txData) { onChain = true; break; }
+      } catch(e) {}
+    }
+    if (!onChain) {
+      set('\u26a0 TX ' + (i+1) + ' not in BattleChain mempool',
+          'MetaMask hash: ' + hash + '\n\n' +
+          'MetaMask signed and returned a hash, but the transaction is NOT\n' +
+          'visible at https://testnet.battlechain.com:3051\n\n' +
+          'This means MetaMask is sending to a different network.\n' +
+          'In MetaMask: Settings \u2192 Networks \u2192 BattleChain \u2192 verify\n' +
+          'RPC URL is exactly: https://testnet.battlechain.com:3051', 'err');
+      return;
+    }
+    dt.textContent = '\u2713 tx ' + (i+1) + ' in BattleChain mempool: ' + hash.slice(0,12) + '\u2026';
   }
 
   // 6. Report back and done
