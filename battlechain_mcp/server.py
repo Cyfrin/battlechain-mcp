@@ -205,38 +205,42 @@ _SIGNING_HTML = """\
     return;
   }
   const address = accounts[0];
-
-  // 2. Switch to / add BattleChain testnet
   const chainHex = '0x' + (CHAIN_ID_INT).toString(16);
-  try {
-    await window.ethereum.request({
-      method: 'wallet_switchEthereumChain',
-      params: [{chainId: chainHex}],
-    });
-  } catch(e) {
-    if (e.code === 4902 || e.code === -32603) {
-      try {
-        await window.ethereum.request({
-          method: 'wallet_addEthereumChain',
-          params: [{
-            chainId: chainHex,
-            chainName: 'BattleChain Testnet',
-            rpcUrls: ['https://testnet.battlechain.com:3051'],
-            nativeCurrency: {name: 'ETH', symbol: 'ETH', decimals: 18},
-            blockExplorerUrls: ['https://block-explorer.testnet.battlechain.com'],
-          }],
-        });
-      } catch(e2) {
-        set('Could not add BattleChain network.', e2.message, 'err');
+
+  // 2. Switch only if not already on BattleChain
+  set('Wallet connected.', 'Checking network\u2026');
+  const currentChain = window.ethereum.chainId;
+  if (!currentChain || currentChain.toLowerCase() !== chainHex.toLowerCase()) {
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{chainId: chainHex}],
+      });
+    } catch(e) {
+      if (e.code === 4902 || e.code === -32603) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: chainHex,
+              chainName: 'BattleChain Testnet',
+              rpcUrls: ['https://testnet.battlechain.com:3051'],
+              nativeCurrency: {name: 'ETH', symbol: 'ETH', decimals: 18},
+              blockExplorerUrls: ['https://block-explorer.testnet.battlechain.com'],
+            }],
+          });
+        } catch(e2) {
+          set('Could not add BattleChain network.', e2.message, 'err');
+          return;
+        }
+      } else {
+        set('Could not switch to BattleChain (code ' + e.code + ')', e.message, 'err');
         return;
       }
-    } else if (e.code !== undefined) {
-      set('Chain switch error (code ' + e.code + ')', e.message, 'err');
-      return;
     }
   }
 
-  // Confirm network after switch
+  // Confirm we're on the right chain
   const activeChain = window.ethereum.chainId;
   if (activeChain && activeChain.toLowerCase() !== chainHex.toLowerCase()) {
     set('Wrong network in MetaMask!',
@@ -246,7 +250,7 @@ _SIGNING_HTML = """\
   }
 
   // 3. Send address to server so it can run forge dry-run
-  set('Connected: ' + address, 'Chain: ' + activeChain + ' \u2713 | Preparing transactions\u2026');
+  set('Connected: ' + address, 'Chain: ' + (activeChain || chainHex) + ' \u2713 | Preparing transactions\u2026');
   try {
     await fetch('/connect', {
       method: 'POST',
