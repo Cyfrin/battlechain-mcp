@@ -269,14 +269,20 @@ _SIGNING_HTML = """\
   }
 
   // 5. Sign each transaction sequentially
+  // Pin nonce to on-chain value so MetaMask's stale internal counter can't cause queuing
+  let baseNonce = 0;
+  try { baseNonce = parseInt(await bcRpc('eth_getTransactionCount', [address, 'latest']), 16); } catch(e) {}
+  let gasPrice = '0x1';
+  try { gasPrice = (await bcRpc('eth_gasPrice')) || '0x1'; } catch(e) {}
+
   const hashes = [];
   for (let i = 0; i < txs.length; i++) {
     const tx = txs[i];
     set('Sign transaction ' + (i+1) + ' of ' + txs.length + ' in MetaMask\u2026',
         tx.description ? 'Action: ' + tx.description : '');
-    let gasPrice = '0x1';
-    try { gasPrice = (await window.ethereum.request({method: 'eth_gasPrice'})) || '0x1'; } catch(e) {}
-    const params = {type: '0x0', from: address, data: tx.data, value: tx.value || '0x0',
+    const params = {type: '0x0', from: address,
+                    nonce: '0x' + (baseNonce + i).toString(16),
+                    data: tx.data, value: tx.value || '0x0',
                     gas: '0x2DC6C0', gasPrice: gasPrice};
     if (tx.to) params.to = tx.to;
     let hash;
