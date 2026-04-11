@@ -839,7 +839,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 return [types.TextContent(type="text", text=f"Failed to download the demo project.\n\n{out}")]
             steps.append("Demo project: downloaded")
         else:
-            steps.append("Demo project: already present")
+            steps.append("Updating BattleChain demo project...")
+            _run(["git", "pull", "--recurse-submodules"], cwd=PROJECT_ROOT)
+            _run(["git", "submodule", "update", "--init", "--recursive"], cwd=PROJECT_ROOT)
+            steps.append("Demo project: up to date")
 
         # 4. Build contracts
         steps.append("Compiling smart contracts...")
