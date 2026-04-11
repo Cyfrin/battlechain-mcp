@@ -276,7 +276,7 @@ _SIGNING_HTML = """\
         tx.description ? 'Action: ' + tx.description : '');
     let gasPrice = '0x1';
     try { gasPrice = (await window.ethereum.request({method: 'eth_gasPrice'})) || '0x1'; } catch(e) {}
-    const params = {from: address, data: tx.data, value: tx.value || '0x0',
+    const params = {type: '0x0', from: address, data: tx.data, value: tx.value || '0x0',
                     gas: '0x2DC6C0', gasPrice: gasPrice};
     if (tx.to) params.to = tx.to;
     let hash;
@@ -299,14 +299,15 @@ _SIGNING_HTML = """\
     }
     if (!onChain) {
       set('\u26a0 TX ' + (i+1) + ' not in BattleChain mempool',
-          'Hash: ' + hash + '\\n' +
-          'MetaMask returned a hash but the tx is NOT at testnet.battlechain.com:3051. ' +
-          'MetaMask is likely sending to a different RPC. ' +
-          'Check MetaMask \u2192 Settings \u2192 Networks \u2192 BattleChain: ' +
-          'RPC URL must be https://testnet.battlechain.com:3051', 'err');
+          'Hash: ' + hash + ' — MetaMask returned a hash but tx is NOT at testnet.battlechain.com:3051. ' +
+          'MetaMask is likely using a different RPC for chain 627. ' +
+          'Check MetaMask Settings \u2192 Networks \u2192 BattleChain RPC URL.', 'err');
       return;
     }
-    dt.textContent = '\u2713 tx ' + (i+1) + ' in BattleChain mempool: ' + hash.slice(0,12) + '\u2026';
+    // Log the tx type MetaMask actually used
+    let txType = '?';
+    try { const d = await bcRpc('eth_getTransactionByHash', [hash]); txType = d && d.type || '?'; } catch(e) {}
+    dt.textContent = '\u2713 tx ' + (i+1) + ' in mempool (type=' + txType + '): ' + hash.slice(0,12) + '\u2026';
   }
 
   // 6. Report back and done
