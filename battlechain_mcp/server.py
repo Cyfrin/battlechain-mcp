@@ -395,7 +395,7 @@ class _SigningHandler(http.server.BaseHTTPRequestHandler):
 class _SigningServer(socketserver.TCPServer):
     allow_reuse_address = True
 
-    def __init__(self, script_paths: "list[str] | str") -> None:
+    def __init__(self, script_paths: "list[str | dict] | str") -> None:
         if isinstance(script_paths, str):
             script_paths = [script_paths]
         self.script_paths = script_paths
@@ -414,9 +414,13 @@ class _SigningServer(socketserver.TCPServer):
     def _run_forge(self, sender: str) -> None:
         all_txs: list = []
         all_env_updates: dict[str, str] = {}
-        for path in self.script_paths:
+        for item in self.script_paths:
+            if isinstance(item, dict):
+                # Raw transaction — bypass forge, inject directly.
+                all_txs.append(item)
+                continue
             try:
-                txs, env_updates, error = _dry_run_forge(path, sender)
+                txs, env_updates, error = _dry_run_forge(item, sender)
                 if error:
                     with self._lock:
                         self._forge_error = error
@@ -555,11 +559,12 @@ def _open_browser(url: str) -> None:
         webbrowser.open(url)
 
 
-def forge_sign_with_metamask(script_paths: "list[str] | str") -> tuple[int, str]:
+def forge_sign_with_metamask(script_paths: "list[str | dict] | str") -> tuple[int, str]:
     """
     Start (or check) a MetaMask signing session for one or more forge scripts.
     Multiple scripts are dry-run in order and their transactions combined into
-    one signing page.
+    one signing page.  Dict entries are raw transactions injected directly
+    without running forge (use when on-chain state won't satisfy simulation).
 
     First call:  starts a local HTTP server, opens the signing page in the
                  browser, and returns (-1, url) so Claude can show the link.
@@ -568,7 +573,7 @@ def forge_sign_with_metamask(script_paths: "list[str] | str") -> tuple[int, str]
     """
     if isinstance(script_paths, str):
         script_paths = [script_paths]
-    key = "+".join(Path(p).name for p in script_paths)
+    key = "+".join(Path(p).name for p in script_paths if isinstance(p, str))
 
     # ── Second call: collect result ───────────────────────────────────────────
     if key in _signing_servers:
@@ -983,10 +988,18 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
         if missing_keys(["AGREEMENT_ADDRESS"]):
             return [types.TextContent(type="text", text="No agreement found. Run create_agreement first.")]
 
-        # Both transactions in one MetaMask signing session: request then approve.
+        # Both transactions in one MetaMask signing session.
+        # ApproveAttackMode is injected as a raw tx (not forge-simulated) because
+        # the dry-run would fail — the agreement is still ACTIVE on-chain at that
+        # point, not ATTACK_REQUESTED.  The nonces are sequential so both land in
+        # the same block and execute in order.
+        agreement = read_env().get("AGREEMENT_ADDRESS", "")
+        # approveAttack(address) selector = keccak256("approveAttack(address)")[:4]
+        approve_data = "0x351cec52" + agreement[2:].lower().zfill(64)
         rc, out = forge_sign_with_metamask([
             "script/RequestAttackMode.s.sol",
-            "script/ApproveAttackMode.s.sol",
+            {"to": MOCK_MODERATOR, "data": approve_data, "value": "0x0",
+             "gas": None, "description": "approveAttack"},
         ])
         if rc == -1:
             return _needs_signing(out)
