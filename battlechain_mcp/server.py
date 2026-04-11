@@ -283,8 +283,16 @@ _SIGNING_HTML = """\
     const params = {type: '0x0', from: address,
                     nonce: '0x' + (baseNonce + i).toString(16),
                     data: tx.data, value: tx.value || '0x0',
-                    gas: '0x2DC6C0', gasPrice: gasPrice};
+                    gasPrice: gasPrice};
     if (tx.to) params.to = tx.to;
+    try {
+      const est = await bcRpc('eth_estimateGas', [params]);
+      // Add 30% headroom for ZK pubdata overhead
+      params.gas = '0x' + Math.ceil(parseInt(est, 16) * 1.3).toString(16);
+    } catch(e) {
+      // Fall back to forge's -g 300 estimate, or a safe default
+      params.gas = tx.gas || '0x600000';
+    }
     let hash;
     try {
       hash = await window.ethereum.request({method: 'eth_sendTransaction', params: [params]});
@@ -439,6 +447,7 @@ def _dry_run_forge(script_path: str, sender: str) -> tuple[list, dict, str]:
         "--chain", CHAIN_ID,
         "--legacy",
         "--skip-simulation",
+        "-g", "300",
     ]
     env = _subprocess_env()
     env["SENDER_ADDRESS"] = sender
@@ -479,6 +488,7 @@ def _dry_run_forge(script_path: str, sender: str) -> tuple[list, dict, str]:
             "to": tx.get("to"),
             "data": tx.get("input", "0x"),
             "value": tx.get("value", "0x0"),
+            "gas": tx.get("gas"),
             "description": desc,
         })
 
