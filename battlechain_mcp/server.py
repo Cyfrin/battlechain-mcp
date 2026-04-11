@@ -299,12 +299,11 @@ _SIGNING_HTML = """\
     }
     if (!onChain) {
       set('\u26a0 TX ' + (i+1) + ' not in BattleChain mempool',
-          'MetaMask hash: ' + hash + '\n\n' +
-          'MetaMask signed and returned a hash, but the transaction is NOT\n' +
-          'visible at https://testnet.battlechain.com:3051\n\n' +
-          'This means MetaMask is sending to a different network.\n' +
-          'In MetaMask: Settings \u2192 Networks \u2192 BattleChain \u2192 verify\n' +
-          'RPC URL is exactly: https://testnet.battlechain.com:3051', 'err');
+          'Hash: ' + hash + '\\n' +
+          'MetaMask returned a hash but the tx is NOT at testnet.battlechain.com:3051. ' +
+          'MetaMask is likely sending to a different RPC. ' +
+          'Check MetaMask \u2192 Settings \u2192 Networks \u2192 BattleChain: ' +
+          'RPC URL must be https://testnet.battlechain.com:3051', 'err');
       return;
     }
     dt.textContent = '\u2713 tx ' + (i+1) + ' in BattleChain mempool: ' + hash.slice(0,12) + '\u2026';
