@@ -381,8 +381,17 @@ hr{border:none;border-top:1px solid #f3f4f6}
   const doneHl = document.getElementById('done-hl');
   const doneDt = document.getElementById('done-dt');
   const headline = (doneHl && doneHl.textContent) || ('\u2713 ' + hashes.length + ' transaction(s) submitted');
-  const detail   = (doneDt && doneDt.textContent) || hashes.map((h,i) => 'tx'+(i+1)+': '+h).join(' | ');
-  set(headline, detail, 'ok');
+  let detail = (doneDt && doneDt.textContent) || hashes.map((h,i) => 'tx'+(i+1)+': '+h).join(' | ');
+  // Append truncated explorer links for known contract addresses
+  const explorerBase = 'https://block-explorer.testnet.battlechain.com/address/';
+  const addrLabels = {TOKEN_ADDRESS:'BCToken',VAULT_ADDRESS:'VulnerableVault',AGREEMENT_ADDRESS:'Agreement',SENDER_ADDRESS:'Your Wallet'};
+  const addrLinks = Object.entries(addresses)
+    .filter(([k,v]) => v && /^0x[0-9a-fA-F]{40}$/.test(v) && addrLabels[k])
+    .map(([k,v]) => addrLabels[k]+': <a href="'+explorerBase+v+'" target="_blank" style="color:inherit;font-weight:600;text-decoration:underline">'+v.slice(0,6)+'\u2026'+v.slice(-4)+'</a>');
+  if (addrLinks.length) detail += '<br><span style="font-size:.76rem;color:#6b7280;display:block;margin-top:5px">'+addrLinks.join(' \u00b7 ')+'</span>';
+  st.textContent = headline;
+  st.className = 'ok';
+  dt.innerHTML = detail;
   const cta = document.getElementById('cta');
   if (cta) cta.style.display = 'block';
 })();
@@ -484,33 +493,43 @@ _VIS_ATTACK_MODE = (
 )
 
 _VIS_EXECUTE = (
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    '<div style="background:#fef2f2;border:1.5px solid #ef4444;border-radius:10px;'
-    'padding:12px 14px">'
-    '<div style="font-size:.72rem;font-weight:700;color:#991b1b;letter-spacing:.04em;'
-    'margin-bottom:8px">\u274c WITHOUT BATTLECHAIN</div>'
-    '<div style="font-size:.81rem;color:#374151;line-height:1.55">'
-    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
-    '\U0001f9b9 Blackhat finds bug</div>'
-    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
-    '\U0001f4b8 Steals 100% of funds</div>'
-    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
-    '\U0001f6ab No legal recourse</div>'
-    '<div style="padding:4px 0;color:#dc2626;font-weight:700">'
-    'Protocol: total loss</div></div></div>'
-    '<div style="background:#f0fdf4;border:1.5px solid #16a34a;border-radius:10px;'
-    'padding:12px 14px">'
-    '<div style="font-size:.72rem;font-weight:700;color:#166534;letter-spacing:.04em;'
-    'margin-bottom:8px">\u2705 WITH BATTLECHAIN</div>'
-    '<div style="font-size:.81rem;color:#374151;line-height:1.55">'
-    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
-    '\U0001f91d Whitehat acts legally</div>'
-    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
-    '\U0001f3e6 90% returned to protocol</div>'
-    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
-    '\U0001f4b0 10% bounty to whitehat</div>'
-    '<div style="padding:4px 0;color:#16a34a;font-weight:700">'
-    'Everyone wins \u2713</div></div></div>'
+    '<div style="display:flex;align-items:center;gap:6px">'
+    # Vault — draining to zero
+    '<div style="flex-shrink:0;text-align:center;background:#fef2f2;'
+    'border:2px solid #dc2626;border-radius:8px;padding:10px 12px;min-width:80px">'
+    '<div style="font-size:1.4rem">\U0001f3e6</div>'
+    '<div style="font-size:.7rem;font-weight:700;color:#991b1b;margin-top:3px">VAULT</div>'
+    '<div style="font-size:.67rem;color:#dc2626;margin-top:2px">1,000 \u2192 0 BCT</div>'
+    '</div>'
+    # Arrow + label
+    '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">'
+    '<div style="color:#94a3b8;font-size:1.3rem">\u2192</div>'
+    '<div style="font-size:.62rem;font-weight:600;color:#7c3aed;text-align:center">reentrancy</div>'
+    '</div>'
+    # Attacker contract
+    '<div style="flex-shrink:0;text-align:center;background:#f5f3ff;'
+    'border:2px solid #7c3aed;border-radius:8px;padding:10px 12px;min-width:80px">'
+    '<div style="font-size:1.4rem">\u26a1</div>'
+    '<div style="font-size:.7rem;font-weight:700;color:#5b21b6;margin-top:3px">ATTACKER</div>'
+    '<div style="font-size:.67rem;color:#7c3aed;margin-top:2px">exploit contract</div>'
+    '</div>'
+    # Arrow + label
+    '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">'
+    '<div style="color:#94a3b8;font-size:1.3rem">\u2192</div>'
+    '<div style="font-size:.62rem;font-weight:600;color:#059669;text-align:center">split</div>'
+    '</div>'
+    # Your wallet — receives both bounty and recovery
+    '<div style="flex-shrink:0;background:#f0fdf4;border:2px solid #059669;'
+    'border-radius:8px;padding:10px 12px;min-width:100px">'
+    '<div style="display:flex;align-items:center;gap:4px;margin-bottom:5px">'
+    '<div style="font-size:1.1rem">\U0001f45b</div>'
+    '<div style="font-size:.7rem;font-weight:700;color:#065f46">YOUR WALLET</div>'
+    '</div>'
+    '<div style="font-size:.68rem;color:#374151;border-top:1px solid #bbf7d0;padding-top:4px;line-height:1.7">'
+    '<div>\U0001f3c6\u00a090 BCT bounty (10%)</div>'
+    '<div>\U0001f504\u00a0900 BCT recovery (90%)</div>'
+    '</div>'
+    '</div>'
     '</div>'
 )
 
@@ -561,14 +580,16 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
         "step": 3, "accent": "#dc2626", "accent_light": "#fee2e2",
         "icon": "\u2694",
         "title": "Activating Attack Mode",
-        "tagline": "Opening the protocol to authorized ethical exploitation",
+        "tagline": "Transitioning the agreement to UNDER_ATTACK — whitehat exploitation authorized",
         "visual": _VIS_ATTACK_MODE,
         "narrative": (
-            "A vulnerability has been identified in the vault. Rather than waiting for a "
-            "malicious actor to exploit it, BattleChain enables a structured response: "
-            "authorize an ethical hacker to drain and return the funds legally. "
-            "<em>Two transactions:</em> the first requests attack mode, the second \u2014 "
-            "the testnet DAO \u2014 immediately approves it."
+            "<strong>Attack mode</strong> is a formal on-chain state \u2014 <em>UNDER_ATTACK</em> \u2014 "
+            "that legally opens this protocol to whitehat exploitation under the safe harbor terms. "
+            "Getting there requires DAO approval: the protocol signals readiness by requesting it, "
+            "then the BattleChain DAO formally grants authorization. "
+            "<em>Two transactions:</em> the first submits the request to the registry; "
+            "the second is the DAO approval. On testnet a permissionless mock moderator approves "
+            "instantly \u2014 on mainnet this would be a real governance vote."
         ),
         "tx_labels": [
             "Requesting attack mode for the agreement",
@@ -726,6 +747,12 @@ class _SigningServer(socketserver.TCPServer):
         for i, label in enumerate(labels):
             if i < len(all_txs):
                 all_txs[i]["description"] = label
+        # Supplement with existing env addresses so the JS explorer-link builder
+        # has context even on steps that deploy no new contracts (e.g. Attack).
+        existing = read_env()
+        for key in ("TOKEN_ADDRESS", "VAULT_ADDRESS", "AGREEMENT_ADDRESS", "SENDER_ADDRESS"):
+            if key not in all_env_updates and existing.get(key):
+                all_env_updates[key] = existing[key]
         with self._lock:
             self._env_updates = all_env_updates
             self._txs = all_txs
@@ -957,10 +984,8 @@ Run the full BattleChain security demo by calling tools in this order:
 2. Call `deploy_contracts` (Step 1).
 3. Call `create_agreement` (Step 2).
 4. Call `request_and_approve_attack_mode` (Step 3).
-5. Before calling `execute_attack`, explain to the user in plain English what is about to happen \
-and ask them to confirm. Only proceed once they say yes.
-6. Call `execute_attack` with their wallet address (Step 4).
-7. Show a clean summary of what happened.
+5. Call `execute_attack` (Step 4).
+6. Show a clean summary of what happened.
 
 After each tool call, explain what just happened in plain English — no jargon. \
 Tell the user what MetaMask will ask them to do before each signing step.\
@@ -1051,10 +1076,8 @@ async def list_tools() -> list[types.Tool]:
             name="execute_attack",
             description=(
                 "Step 4 of 4 — THE ATTACK. Executes the reentrancy exploit against the vault. "
-                "IMPORTANT: Only call this tool AFTER you have explicitly told the user what is about to happen "
-                "and they have confirmed they want to proceed. "
-                "Explain to the user: the vault holds 1,000 tokens; the attack will drain it completely; "
-                "90% will be returned to their wallet as protocol recovery, 10% kept as the whitehat bounty. "
+                "The vault holds 1,000 tokens; the attack will drain it completely. "
+                "90% is returned to the whitehat's wallet as protocol recovery, 10% kept as the bounty. "
                 "The wallet address is taken from their previous signing session automatically. "
                 "Opens MetaMask signing page. Call again after signing to collect the result. "
                 "Requires Step 3 (request_and_approve_attack_mode) to be complete."
@@ -1296,8 +1319,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
             "  Request submitted: \u2713\n"
             "  Testnet moderator approved: \u2713\n"
             "  Agreement state: UNDER_ATTACK\n\n"
-            "The vault is open for the authorized whitehat attack. "
-            "When you're ready, confirm with the user before proceeding to Step 4."
+            "The vault is open for the authorized whitehat attack. Ready for Step 4."
         ))]
 
     # ── execute_attack ────────────────────────────────────────────────────────
