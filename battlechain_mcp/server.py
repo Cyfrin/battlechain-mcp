@@ -161,24 +161,65 @@ _SIGNING_HTML = """\
 <meta charset="utf-8">
 <title>BattleChain \u2014 Sign Transactions</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-         max-width: 560px; margin: 64px auto; padding: 0 24px; color: #1a1a2e; }
-  h1   { font-size: 1.25rem; color: #16213e; margin-bottom: 4px; }
-  .sub { color: #666; font-size: .88rem; margin: 0 0 24px; }
-  #box { border: 1px solid #d4daf0; border-radius: 8px; padding: 18px 20px;
-         background: #f8f9ff; }
-  #st  { font-weight: 600; margin: 0 0 4px; white-space: pre-wrap; }
-  #dt  { color: #555; font-size: .87rem; min-height: 1.1em; }
-  .ok  { color: #1b6e3c; }
-  .err { color: #b91c1c; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+     background:#f1f5f9;min-height:100vh;display:flex;
+     align-items:flex-start;justify-content:center;padding:32px 16px}
+.card{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.09);
+      max-width:560px;width:100%;overflow:hidden}
+.banner{background:PAGE_ACCENT;padding:14px 22px;display:flex;align-items:center;gap:14px}
+.bl{color:rgba(255,255,255,.85);font-size:.78rem;font-weight:600;
+    letter-spacing:.04em;white-space:nowrap}
+.dots{display:flex;align-items:center;gap:0;flex:1}
+.dot{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;
+     justify-content:center;font-size:.72rem;font-weight:700;flex-shrink:0}
+.da{background:#fff;color:PAGE_ACCENT}
+.dd{background:rgba(255,255,255,.6);color:PAGE_ACCENT}
+.df{background:rgba(255,255,255,.15);color:rgba(255,255,255,.5)}
+.dl{flex:1;height:2px;background:rgba(255,255,255,.2)}
+.dld{flex:1;height:2px;background:rgba(255,255,255,.65)}
+.hero{padding:22px 24px 10px;display:flex;gap:14px;align-items:flex-start}
+.hib{width:52px;height:52px;border-radius:12px;background:PAGE_ACCENT_LIGHT;
+     display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0}
+.ht h1{font-size:1.2rem;color:#111827;font-weight:700}
+.ht p{font-size:.86rem;color:#6b7280;margin-top:4px;line-height:1.4}
+.vis{padding:10px 24px}
+.nar{padding:4px 24px 18px;font-size:.87rem;color:#374151;line-height:1.6}
+.nar strong{color:PAGE_ACCENT}
+.nar em{font-style:italic}
+hr{border:none;border-top:1px solid #f3f4f6}
+.sw{margin:14px 24px 22px;border:1.5px solid #e5e7eb;border-radius:10px;
+    padding:14px 16px;background:#f9fafb}
+#st{font-weight:600;font-size:.9rem;color:#111827;white-space:pre-wrap}
+#dt{font-size:.82rem;color:#6b7280;margin-top:4px;min-height:1.1em}
+.ok{color:#059669!important}
+.err{color:#dc2626!important}
+.footer{display:flex;align-items:center;gap:8px;padding:10px 24px;
+        border-top:1px solid #f3f4f6;font-size:.74rem;color:#9ca3af}
+.footer img{height:16px;opacity:.55;display:block}
 </style>
 </head>
 <body>
-<h1>&#x1F510; BattleChain Demo</h1>
-<p class="sub">This page signs the demo transactions via MetaMask.</p>
-<div id="box">
+<div class="card">
+<div class="banner">
+  <img src="/logo/cygent-wm" alt="Cygent" style="height:20px;flex-shrink:0">
+  <div class="dots" style="justify-content:flex-end">PAGE_STEP_DOTS</div>
+</div>
+<div class="hero">
+  <div class="hib">PAGE_ICON</div>
+  <div class="ht"><h1>PAGE_TITLE</h1><p>PAGE_TAGLINE</p></div>
+</div>
+<div class="vis">PAGE_VISUAL</div>
+<div class="nar">PAGE_NARRATIVE</div>
+<hr>
+<div class="sw">
   <div id="st">Connecting to MetaMask\u2026</div>
   <div id="dt"></div>
+<div class="footer">
+  <img src="/logo/cyfrin" alt="Cyfrin">
+  <span>BattleChain &middot; a Cyfrin protocol</span>
+</div>
+</div>
 </div>
 <script>
 (async () => {
@@ -341,6 +382,189 @@ _SIGNING_HTML = """\
 """
 
 
+def _build_dots(step: int, total: int = 4) -> str:
+    if step < 1:
+        return ""
+    parts = []
+    for i in range(1, total + 1):
+        cls = "dot da" if i == step else ("dot dd" if i < step else "dot df")
+        parts.append(f'<span class="{cls}">{i}</span>')
+        if i < total:
+            parts.append(f'<span class="{"dld" if i < step else "dl"}"></span>')
+    return "".join(parts)
+
+
+_VIS_DEPLOY = (
+    '<div style="display:flex;align-items:center;gap:10px">'
+    '<div style="flex-shrink:0;text-align:center;padding:10px 14px;background:#dbeafe;'
+    'border:1.5px solid #2563eb;border-radius:8px">'
+    '<div style="font-size:1.3rem">\U0001f45b</div>'
+    '<div style="font-size:.75rem;font-weight:700;color:#1e40af;margin-top:3px">WALLET</div>'
+    '</div>'
+    '<div style="color:#94a3b8;font-size:1.4rem">\u2192</div>'
+    '<div style="flex:1;display:flex;flex-direction:column;gap:7px">'
+    '<div style="padding:8px 12px;background:#fef2f2;border:1.5px solid #ef4444;'
+    'border-radius:7px;display:flex;align-items:center;justify-content:space-between">'
+    '<div><div style="font-size:.8rem;font-weight:700;color:#991b1b">VulnerableVault</div>'
+    '<div style="font-size:.72rem;color:#ef4444;margin-top:1px">holds protocol funds</div></div>'
+    '<span style="font-size:1.2rem">\U0001f3e6</span></div>'
+    '<div style="padding:8px 12px;background:#f0fdf4;border:1.5px solid #16a34a;'
+    'border-radius:7px;display:flex;align-items:center;justify-content:space-between">'
+    '<div><div style="font-size:.8rem;font-weight:700;color:#166534">BCToken</div>'
+    '<div style="font-size:.72rem;color:#16a34a;margin-top:1px">the asset at risk</div></div>'
+    '<span style="font-size:1.2rem">\U0001fa99</span></div>'
+    '</div>'
+    '<div style="color:#94a3b8;font-size:1.4rem">\u2192</div>'
+    '<div style="flex-shrink:0;text-align:center;padding:10px 14px;background:#dbeafe;'
+    'border:2px solid #2563eb;border-radius:8px">'
+    '<div style="font-size:1.3rem">\u26d3</div>'
+    '<div style="font-size:.75rem;font-weight:700;color:#1d4ed8;margin-top:3px">BATTLECHAIN</div>'
+    '<div style="font-size:.67rem;color:#3b82f6">testnet</div>'
+    '</div></div>'
+)
+
+_VIS_AGREEMENT = (
+    '<div style="background:#f9fafb;border:1.5px solid #d1fae5;border-radius:10px;overflow:hidden">'
+    '<div style="background:#059669;color:white;padding:9px 16px;display:flex;'
+    'align-items:center;gap:8px">'
+    '<span style="font-size:1rem">\U0001f6e1</span>'
+    '<span style="font-size:.8rem;font-weight:700;letter-spacing:.05em">'
+    'SAFE HARBOR AGREEMENT \u2014 ON-CHAIN</span></div>'
+    '<div style="display:flex;justify-content:space-between;padding:9px 16px;'
+    'border-bottom:1px solid #f3f4f6;font-size:.84rem">'
+    '<span style="color:#6b7280">Bounty rate</span>'
+    '<span style="color:#059669;font-weight:700">10% of recovered funds</span></div>'
+    '<div style="display:flex;justify-content:space-between;padding:9px 16px;'
+    'border-bottom:1px solid #f3f4f6;font-size:.84rem">'
+    '<span style="color:#6b7280">Maximum payout</span>'
+    '<span style="color:#059669;font-weight:700">$5,000,000 USD</span></div>'
+    '<div style="display:flex;justify-content:space-between;padding:9px 16px;'
+    'border-bottom:1px solid #f3f4f6;font-size:.84rem">'
+    '<span style="color:#6b7280">Identity required</span>'
+    '<span style="color:#059669;font-weight:700">Anonymous OK</span></div>'
+    '<div style="display:flex;justify-content:space-between;padding:9px 16px;font-size:.84rem">'
+    '<span style="color:#6b7280">Legal status</span>'
+    '<span style="color:#059669;font-weight:700">Safe Harbor Protected \u2713</span></div>'
+    '</div>'
+)
+
+_VIS_ATTACK_MODE = (
+    '<div style="display:flex;align-items:center;gap:6px;padding:4px 0">'
+    '<div style="flex:1;text-align:center;padding:10px 8px;background:#d1fae5;'
+    'border:2px solid #059669;border-radius:8px">'
+    '<div style="font-size:.72rem;font-weight:700;color:#065f46;letter-spacing:.04em">'
+    '\u25cf ACTIVE</div>'
+    '<div style="font-size:.68rem;color:#6b7280;margin-top:2px">safe harbor live</div>'
+    '</div>'
+    '<div style="color:#94a3b8;font-size:1.1rem">\u2192</div>'
+    '<div style="flex:1;text-align:center;padding:10px 8px;background:#ffedd5;'
+    'border:2px solid #ea580c;border-radius:8px">'
+    '<div style="font-size:.72rem;font-weight:700;color:#9a3412;letter-spacing:.04em">'
+    '\u25cf REQUESTED</div>'
+    '<div style="font-size:.68rem;color:#6b7280;margin-top:2px">DAO reviewing</div>'
+    '</div>'
+    '<div style="color:#94a3b8;font-size:1.1rem">\u2192</div>'
+    '<div style="flex:1;text-align:center;padding:10px 8px;background:#fee2e2;'
+    'border:2.5px solid #dc2626;border-radius:8px;'
+    'box-shadow:0 0 0 3px #fee2e2,0 0 0 5px #dc2626">'
+    '<div style="font-size:.72rem;font-weight:700;color:#991b1b;letter-spacing:.04em">'
+    '\u2694 UNDER ATTACK</div>'
+    '<div style="font-size:.68rem;color:#dc2626;margin-top:2px">\u2190 target state</div>'
+    '</div></div>'
+)
+
+_VIS_EXECUTE = (
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    '<div style="background:#fef2f2;border:1.5px solid #ef4444;border-radius:10px;'
+    'padding:12px 14px">'
+    '<div style="font-size:.72rem;font-weight:700;color:#991b1b;letter-spacing:.04em;'
+    'margin-bottom:8px">\u274c WITHOUT BATTLECHAIN</div>'
+    '<div style="font-size:.81rem;color:#374151;line-height:1.55">'
+    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
+    '\U0001f9b9 Blackhat finds bug</div>'
+    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
+    '\U0001f4b8 Steals 100% of funds</div>'
+    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
+    '\U0001f6ab No legal recourse</div>'
+    '<div style="padding:4px 0;color:#dc2626;font-weight:700">'
+    'Protocol: total loss</div></div></div>'
+    '<div style="background:#f0fdf4;border:1.5px solid #16a34a;border-radius:10px;'
+    'padding:12px 14px">'
+    '<div style="font-size:.72rem;font-weight:700;color:#166534;letter-spacing:.04em;'
+    'margin-bottom:8px">\u2705 WITH BATTLECHAIN</div>'
+    '<div style="font-size:.81rem;color:#374151;line-height:1.55">'
+    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
+    '\U0001f91d Whitehat acts legally</div>'
+    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
+    '\U0001f3e6 90% returned to protocol</div>'
+    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
+    '\U0001f4b0 10% bounty to whitehat</div>'
+    '<div style="padding:4px 0;color:#16a34a;font-weight:700">'
+    'Everyone wins \u2713</div></div></div>'
+    '</div>'
+)
+
+_PAGE_CONFIGS: "dict[str, dict]" = {
+    "Setup.s.sol": {
+        "step": 1, "accent": "#2563eb", "accent_light": "#dbeafe",
+        "icon": "\U0001f3d7",
+        "title": "Deploying Your Protocol",
+        "tagline": "Setting the stage \u2014 contracts going live on BattleChain testnet",
+        "visual": _VIS_DEPLOY,
+        "narrative": (
+            "Your <strong>VulnerableVault</strong> holds protocol funds and contains an "
+            "exploitable bug \u2014 by design. The <strong>BCToken</strong> is the asset inside. "
+            "Normally, discovering this bug would mean a race against malicious actors. "
+            "BattleChain gives you a better option."
+        ),
+    },
+    "CreateAgreement.s.sol": {
+        "step": 2, "accent": "#059669", "accent_light": "#d1fae5",
+        "icon": "\U0001f6e1",
+        "title": "Establishing Safe Harbor",
+        "tagline": "Creating legal protection for ethical hackers \u2014 and your protocol",
+        "visual": _VIS_AGREEMENT,
+        "narrative": (
+            "Safe harbor turns a potential attack into a structured recovery. "
+            "<strong>Ethical hackers</strong> who find and return funds are legally protected "
+            "and paid a fair bounty. This agreement is registered on-chain \u2014 immutable, "
+            "transparent, no ambiguity. Everyone knows exactly what the deal is."
+        ),
+    },
+    "RequestAttackMode.s.sol": {
+        "step": 3, "accent": "#dc2626", "accent_light": "#fee2e2",
+        "icon": "\u2694",
+        "title": "Activating Attack Mode",
+        "tagline": "Opening your protocol to authorized ethical exploitation",
+        "visual": _VIS_ATTACK_MODE,
+        "narrative": (
+            "You <strong>know</strong> about the vulnerability. Instead of waiting for a "
+            "blackhat to find it first, you\u2019re proactively inviting an ethical hacker to "
+            "exploit it safely. <em>Two transactions:</em> the first requests attack mode, "
+            "the second \u2014 the testnet DAO \u2014 immediately approves it."
+        ),
+    },
+    "Attack.s.sol": {
+        "step": 4, "accent": "#7c3aed", "accent_light": "#ede9fe",
+        "icon": "\u26a1",
+        "title": "The Ethical Exploit",
+        "tagline": "Draining the vault and returning the funds under safe harbor",
+        "visual": _VIS_EXECUTE,
+        "narrative": (
+            "The whitehat exploits the <strong>VulnerableVault</strong>, drains its funds, "
+            "and sends them back according to the safe harbor terms. What would have been a "
+            "devastating hack becomes a coordinated rescue \u2014 both sides walk away whole."
+        ),
+    },
+}
+
+
+_LOGO_ASSETS: "dict[str, str]" = {
+    "cygent-wm": "CYGENT- wordmark - light.png",
+    "cyfrin":    "CYFRIN - logo - Color.png",
+}
+
+
 class _SigningHandler(http.server.BaseHTTPRequestHandler):
     server: "_SigningServer"
 
@@ -361,6 +585,15 @@ class _SigningHandler(http.server.BaseHTTPRequestHandler):
                 self._send(200, "application/json", json.dumps(payload).encode())
             else:
                 self._send(202, "text/plain", b"")
+        elif self.path.startswith("/logo/"):
+            name = self.path[6:]
+            filename = _LOGO_ASSETS.get(name)
+            if filename:
+                asset_path = PROJECT_ROOT / "assets" / filename
+                if asset_path.exists():
+                    self._send(200, "image/png", asset_path.read_bytes())
+                    return
+            self._send(404, "text/plain", b"not found")
         else:
             self._send(404, "text/plain", b"not found")
 
@@ -395,7 +628,8 @@ class _SigningHandler(http.server.BaseHTTPRequestHandler):
 class _SigningServer(socketserver.TCPServer):
     allow_reuse_address = True
 
-    def __init__(self, script_paths: "list[str | dict] | str") -> None:
+    def __init__(self, script_paths: "list[str | dict] | str",
+                 page_config: "dict | None" = None) -> None:
         if isinstance(script_paths, str):
             script_paths = [script_paths]
         self.script_paths = script_paths
@@ -408,7 +642,19 @@ class _SigningServer(socketserver.TCPServer):
         self._lock = threading.Lock()
         super().__init__(("127.0.0.1", 0), _SigningHandler)
         port = self.server_address[1]
-        self.html = _SIGNING_HTML.replace("CHAIN_ID_INT", CHAIN_ID)
+        cfg = page_config or {}
+        html = _SIGNING_HTML.replace("CHAIN_ID_INT", CHAIN_ID)
+        html = (html
+            .replace("PAGE_ACCENT_LIGHT", cfg.get("accent_light", "#dbeafe"))
+            .replace("PAGE_ACCENT",       cfg.get("accent",       "#2563eb"))
+            .replace("PAGE_STEP_DOTS",    _build_dots(cfg.get("step", 0)))
+            .replace("PAGE_ICON",         cfg.get("icon",         "\U0001f510"))
+            .replace("PAGE_TITLE",        cfg.get("title",        "Sign Transactions"))
+            .replace("PAGE_TAGLINE",      cfg.get("tagline",      "BattleChain Demo"))
+            .replace("PAGE_VISUAL",       cfg.get("visual",       ""))
+            .replace("PAGE_NARRATIVE",    cfg.get("narrative",    ""))
+        )
+        self.html = html
         self.url = f"http://127.0.0.1:{port}/"
 
     def _run_forge(self, sender: str) -> None:
@@ -606,7 +852,9 @@ def forge_sign_with_metamask(script_paths: "list[str | dict] | str") -> tuple[in
         return 0, "Signed " + str(len(hashes)) + " transaction(s).\nHashes:\n" + "\n".join(hashes)
 
     # ── First call: start server and open browser ─────────────────────────────
-    srv = _SigningServer(script_paths)
+    first_script = next((p for p in script_paths if isinstance(p, str)), None)
+    page_config = _PAGE_CONFIGS.get(Path(first_script).name) if first_script else None
+    srv = _SigningServer(script_paths, page_config=page_config)
     _signing_servers[key] = srv
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
