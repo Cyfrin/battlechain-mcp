@@ -564,6 +564,10 @@ _VIS_EXECUTE = (
     '<span><span id="bal-vault-b" style="color:#dc2626;font-weight:600">\u2026</span>'
     '<span style="color:#94a3b8"> \u2192 </span>'
     '<span id="bal-vault-a" style="color:#059669;font-weight:600">?</span></span>'
+    '<span style="color:#6b7280">Attack seed</span>'
+    '<span style="font-weight:600;color:#7c3aed">100 BCT'
+    '<span style="font-weight:400;color:#9ca3af;font-size:.74rem"> deposited to open position</span>'
+    '</span>'
     '<span style="color:#6b7280">Your Wallet</span>'
     '<span><span id="bal-wallet-b" style="color:#6b7280;font-weight:600">\u2026</span>'
     '<span style="color:#94a3b8"> \u2192 </span>'
@@ -646,10 +650,11 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
         "tagline": "Executing the reentrancy exploit and recovering funds per the safe harbor agreement",
         "visual": _VIS_EXECUTE,
         "narrative": (
-            "The whitehat exploits the <strong>VulnerableVault</strong> via reentrancy \u2014 "
-            "calling the withdrawal function repeatedly before the contract can update its balance. "
-            "Funds are drained and split per the safe harbor terms. "
-            "What would otherwise be a total loss becomes a structured, authorized recovery."
+            "The Attacker deposits <strong>100 seed tokens</strong> to open a position in the vault, "
+            "then calls <code>withdrawAll()</code>. The vault transfers tokens back before clearing "
+            "its internal balance, triggering a re-entry \u2014 and the cycle repeats until the vault "
+            "is empty. The full drained amount (1,000 vault + 100 seed = 1,100) is split per the "
+            "safe harbor terms."
         ),
         "tx_labels": [
             "Deploying Attacker contract",
