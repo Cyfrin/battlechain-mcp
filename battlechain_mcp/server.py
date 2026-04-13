@@ -180,7 +180,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
 .dld{flex:1;height:2px;background:rgba(255,255,255,.65)}
 .hero{padding:22px 24px 10px;display:flex;gap:14px;align-items:flex-start}
 .hib{width:52px;height:52px;border-radius:12px;background:PAGE_ACCENT_LIGHT;
-     display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0}
+     display:flex;align-items:center;justify-content:center;font-size:1.25rem;
+     font-weight:800;color:PAGE_ACCENT;letter-spacing:-.03em;flex-shrink:0}
 .ht h1{font-size:1.2rem;color:#111827;font-weight:700}
 .ht p{font-size:.86rem;color:#6b7280;margin-top:4px;line-height:1.4}
 .vis{padding:10px 24px}
@@ -260,6 +261,11 @@ hr{border:none;border-top:1px solid #f3f4f6}
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', method, params: params || [], id: 1}),
   }).then(r => r.json()).then(d => d.result);
+  const balOf = async (token, owner) => {
+    const data = '0x70a08231' + owner.slice(2).padStart(64, '0');
+    const r = await bcRpc('eth_call', [{to: token, data}, 'latest']);
+    return r ? (parseInt(r, 16) / 1e18).toFixed(0) : null;
+  };
 
   // 2. Switch to / add BattleChain testnet
   const chainHex = '0x' + (CHAIN_ID_INT).toString(16);
@@ -278,7 +284,7 @@ hr{border:none;border-top:1px solid #f3f4f6}
             chainName: 'BattleChain Testnet',
             rpcUrls: ['https://testnet.battlechain.com:3051'],
             nativeCurrency: {name: 'ETH', symbol: 'ETH', decimals: 18},
-            blockExplorerUrls: ['https://block-explorer.testnet.battlechain.com'],
+            blockExplorerUrls: ['https://explorer.testnet.battlechain.com'],
           }],
         });
       } catch(e2) {
@@ -314,6 +320,18 @@ hr{border:none;border-top:1px solid #f3f4f6}
   }
   if (!txs || !txs.length) {
     set('No transactions to sign.', '', 'err'); return;
+  }
+
+  // Fetch live balances if the attack-step balance display exists
+  const balDisplay = document.getElementById('bal-display');
+  if (balDisplay && addresses.TOKEN_ADDRESS && addresses.VAULT_ADDRESS && addresses.SENDER_ADDRESS) {
+    try {
+      const vb = await balOf(addresses.TOKEN_ADDRESS, addresses.VAULT_ADDRESS);
+      const wb = await balOf(addresses.TOKEN_ADDRESS, addresses.SENDER_ADDRESS);
+      const ev = document.getElementById('bal-vault-b'); if (ev && vb !== null) ev.textContent = vb + ' BCT';
+      const ew = document.getElementById('bal-wallet-b'); if (ew && wb !== null) ew.textContent = wb + ' BCT';
+      balDisplay.style.display = 'block';
+    } catch(e) {}
   }
 
   // 5. Sign each transaction sequentially
@@ -378,12 +396,21 @@ hr{border:none;border-top:1px solid #f3f4f6}
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({hashes, address}),
   });
+  // Refresh after-balances
+  if (balDisplay && addresses.TOKEN_ADDRESS && addresses.VAULT_ADDRESS && addresses.SENDER_ADDRESS) {
+    try {
+      const vb = await balOf(addresses.TOKEN_ADDRESS, addresses.VAULT_ADDRESS);
+      const wb = await balOf(addresses.TOKEN_ADDRESS, addresses.SENDER_ADDRESS);
+      const ev = document.getElementById('bal-vault-a'); if (ev && vb !== null) ev.textContent = vb + ' BCT';
+      const ew = document.getElementById('bal-wallet-a'); if (ew && wb !== null) ew.textContent = wb + ' BCT';
+    } catch(e) {}
+  }
   const doneHl = document.getElementById('done-hl');
   const doneDt = document.getElementById('done-dt');
   const headline = (doneHl && doneHl.textContent) || ('\u2713 ' + hashes.length + ' transaction(s) submitted');
   let detail = (doneDt && doneDt.textContent) || hashes.map((h,i) => 'tx'+(i+1)+': '+h).join(' | ');
   // Append truncated explorer links for known contract addresses
-  const explorerBase = 'https://block-explorer.testnet.battlechain.com/address/';
+  const explorerBase = 'https://explorer.testnet.battlechain.com/address/';
   const addrLabels = {TOKEN_ADDRESS:'BCToken',VAULT_ADDRESS:'VulnerableVault',AGREEMENT_ADDRESS:'Agreement',SENDER_ADDRESS:'Your Wallet'};
   const addrLinks = Object.entries(addresses)
     .filter(([k,v]) => v && /^0x[0-9a-fA-F]{40}$/.test(v) && addrLabels[k])
@@ -415,39 +442,44 @@ def _build_dots(step: int, total: int = 4) -> str:
 
 _VIS_DEPLOY = (
     '<div style="display:flex;align-items:center;gap:10px">'
+    # Sender wallet node
     '<div style="flex-shrink:0;text-align:center;padding:10px 14px;background:#dbeafe;'
     'border:1.5px solid #2563eb;border-radius:8px">'
-    '<div style="font-size:1.3rem">\U0001f45b</div>'
-    '<div style="font-size:.75rem;font-weight:700;color:#1e40af;margin-top:3px">WALLET</div>'
+    '<div style="width:32px;height:32px;border-radius:50%;background:#1e40af;color:#fff;'
+    'display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:800;'
+    'margin:0 auto">W</div>'
+    '<div style="font-size:.72rem;font-weight:700;color:#1e40af;margin-top:5px">WALLET</div>'
     '</div>'
-    '<div style="color:#94a3b8;font-size:1.4rem">\u2192</div>'
+    '<div style="color:#cbd5e1;font-size:1.2rem;font-weight:300">\u2192</div>'
+    # Contracts column
     '<div style="flex:1;display:flex;flex-direction:column;gap:7px">'
     '<div style="padding:8px 12px;background:#fef2f2;border:1.5px solid #ef4444;'
-    'border-radius:7px;display:flex;align-items:center;justify-content:space-between">'
-    '<div><div style="font-size:.8rem;font-weight:700;color:#991b1b">VulnerableVault</div>'
-    '<div style="font-size:.72rem;color:#ef4444;margin-top:1px">holds protocol funds</div></div>'
-    '<span style="font-size:1.2rem">\U0001f3e6</span></div>'
-    '<div style="padding:8px 12px;background:#f0fdf4;border:1.5px solid #16a34a;'
-    'border-radius:7px;display:flex;align-items:center;justify-content:space-between">'
-    '<div><div style="font-size:.8rem;font-weight:700;color:#166534">BCToken</div>'
-    '<div style="font-size:.72rem;color:#16a34a;margin-top:1px">the asset at risk</div></div>'
-    '<span style="font-size:1.2rem">\U0001fa99</span></div>'
+    'border-radius:7px">'
+    '<div style="font-size:.8rem;font-weight:700;color:#991b1b">VulnerableVault</div>'
+    '<div style="font-size:.72rem;color:#9ca3af;margin-top:1px">holds protocol funds</div>'
     '</div>'
-    '<div style="color:#94a3b8;font-size:1.4rem">\u2192</div>'
+    '<div style="padding:8px 12px;background:#f0fdf4;border:1.5px solid #16a34a;'
+    'border-radius:7px">'
+    '<div style="font-size:.8rem;font-weight:700;color:#166534">BCToken</div>'
+    '<div style="font-size:.72rem;color:#9ca3af;margin-top:1px">ERC-20 asset at risk</div>'
+    '</div>'
+    '</div>'
+    '<div style="color:#cbd5e1;font-size:1.2rem;font-weight:300">\u2192</div>'
+    # Chain destination node
     '<div style="flex-shrink:0;text-align:center;padding:10px 14px;background:#dbeafe;'
     'border:2px solid #2563eb;border-radius:8px">'
-    '<div style="font-size:1.3rem">\u26d3</div>'
-    '<div style="font-size:.75rem;font-weight:700;color:#1d4ed8;margin-top:3px">BATTLECHAIN</div>'
-    '<div style="font-size:.67rem;color:#3b82f6">testnet</div>'
+    '<div style="width:32px;height:32px;border-radius:50%;background:#1d4ed8;color:#fff;'
+    'display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;'
+    'margin:0 auto;letter-spacing:-.02em">BC</div>'
+    '<div style="font-size:.72rem;font-weight:700;color:#1d4ed8;margin-top:5px">BATTLECHAIN</div>'
+    '<div style="font-size:.67rem;color:#93c5fd">testnet</div>'
     '</div></div>'
 )
 
 _VIS_AGREEMENT = (
     '<div style="background:#f9fafb;border:1.5px solid #d1fae5;border-radius:10px;overflow:hidden">'
-    '<div style="background:#059669;color:white;padding:9px 16px;display:flex;'
-    'align-items:center;gap:8px">'
-    '<span style="font-size:1rem">\U0001f6e1</span>'
-    '<span style="font-size:.8rem;font-weight:700;letter-spacing:.05em">'
+    '<div style="background:#059669;color:white;padding:9px 16px">'
+    '<span style="font-size:.8rem;font-weight:700;letter-spacing:.06em">'
     'SAFE HARBOR AGREEMENT \u2014 ON-CHAIN</span></div>'
     '<div style="display:flex;justify-content:space-between;padding:9px 16px;'
     'border-bottom:1px solid #f3f4f6;font-size:.84rem">'
@@ -460,7 +492,7 @@ _VIS_AGREEMENT = (
     '<div style="display:flex;justify-content:space-between;padding:9px 16px;'
     'border-bottom:1px solid #f3f4f6;font-size:.84rem">'
     '<span style="color:#6b7280">Identity required</span>'
-    '<span style="color:#059669;font-weight:700">Anonymous OK</span></div>'
+    '<span style="color:#059669;font-weight:700">Not required</span></div>'
     '<div style="display:flex;justify-content:space-between;padding:9px 16px;font-size:.84rem">'
     '<span style="color:#6b7280">Legal status</span>'
     '<span style="color:#059669;font-weight:700">Safe Harbor Protected \u2713</span></div>'
@@ -493,42 +525,49 @@ _VIS_ATTACK_MODE = (
 )
 
 _VIS_EXECUTE = (
-    '<div style="display:flex;align-items:center;gap:6px">'
-    # Vault — draining to zero
-    '<div style="flex-shrink:0;text-align:center;background:#fef2f2;'
-    'border:2px solid #dc2626;border-radius:8px;padding:10px 12px;min-width:80px">'
-    '<div style="font-size:1.4rem">\U0001f3e6</div>'
-    '<div style="font-size:.7rem;font-weight:700;color:#991b1b;margin-top:3px">VAULT</div>'
-    '<div style="font-size:.67rem;color:#dc2626;margin-top:2px">1,000 \u2192 0 BCT</div>'
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    '<div style="background:#fef2f2;border:1.5px solid #ef4444;border-radius:10px;'
+    'padding:12px 14px">'
+    '<div style="font-size:.72rem;font-weight:700;color:#991b1b;letter-spacing:.04em;'
+    'margin-bottom:8px">WITHOUT BATTLECHAIN</div>'
+    '<div style="font-size:.81rem;color:#374151;line-height:1.6">'
+    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
+    'Malicious actor exploits the bug</div>'
+    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
+    '100% of funds stolen</div>'
+    '<div style="padding:3px 0;border-bottom:1px solid #fecaca">'
+    'No legal recourse</div>'
+    '<div style="padding:4px 0;color:#dc2626;font-weight:700">'
+    'Protocol: total loss</div></div></div>'
+    '<div style="background:#f0fdf4;border:1.5px solid #16a34a;border-radius:10px;'
+    'padding:12px 14px">'
+    '<div style="font-size:.72rem;font-weight:700;color:#166534;letter-spacing:.04em;'
+    'margin-bottom:8px">WITH BATTLECHAIN</div>'
+    '<div style="font-size:.81rem;color:#374151;line-height:1.6">'
+    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
+    'Whitehat operates under legal authorization</div>'
+    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
+    '90% of funds returned to protocol</div>'
+    '<div style="padding:3px 0;border-bottom:1px solid #bbf7d0">'
+    '10% bounty paid to researcher</div>'
+    '<div style="padding:4px 0;color:#16a34a;font-weight:700">'
+    'Structured recovery \u2713</div></div></div>'
     '</div>'
-    # Arrow + label
-    '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">'
-    '<div style="color:#94a3b8;font-size:1.3rem">\u2192</div>'
-    '<div style="font-size:.62rem;font-weight:600;color:#7c3aed;text-align:center">reentrancy</div>'
-    '</div>'
-    # Attacker contract
-    '<div style="flex-shrink:0;text-align:center;background:#f5f3ff;'
-    'border:2px solid #7c3aed;border-radius:8px;padding:10px 12px;min-width:80px">'
-    '<div style="font-size:1.4rem">\u26a1</div>'
-    '<div style="font-size:.7rem;font-weight:700;color:#5b21b6;margin-top:3px">ATTACKER</div>'
-    '<div style="font-size:.67rem;color:#7c3aed;margin-top:2px">exploit contract</div>'
-    '</div>'
-    # Arrow + label
-    '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px">'
-    '<div style="color:#94a3b8;font-size:1.3rem">\u2192</div>'
-    '<div style="font-size:.62rem;font-weight:600;color:#059669;text-align:center">split</div>'
-    '</div>'
-    # Your wallet — receives both bounty and recovery
-    '<div style="flex-shrink:0;background:#f0fdf4;border:2px solid #059669;'
-    'border-radius:8px;padding:10px 12px;min-width:100px">'
-    '<div style="display:flex;align-items:center;gap:4px;margin-bottom:5px">'
-    '<div style="font-size:1.1rem">\U0001f45b</div>'
-    '<div style="font-size:.7rem;font-weight:700;color:#065f46">YOUR WALLET</div>'
-    '</div>'
-    '<div style="font-size:.68rem;color:#374151;border-top:1px solid #bbf7d0;padding-top:4px;line-height:1.7">'
-    '<div>\U0001f3c6\u00a090 BCT bounty (10%)</div>'
-    '<div>\U0001f504\u00a0900 BCT recovery (90%)</div>'
-    '</div>'
+    # Live balance tracker — hidden until JS populates it
+    '<div id="bal-display" style="display:none;margin-top:10px;background:#f9fafb;'
+    'border:1px solid #e5e7eb;border-radius:8px;padding:9px 12px">'
+    '<div style="font-size:.69rem;font-weight:700;color:#6b7280;letter-spacing:.05em;'
+    'margin-bottom:6px">LIVE BALANCES</div>'
+    '<div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:.8rem;'
+    'align-items:center">'
+    '<span style="color:#6b7280">Vault (BCToken)</span>'
+    '<span><span id="bal-vault-b" style="color:#dc2626;font-weight:600">\u2026</span>'
+    '<span style="color:#94a3b8"> \u2192 </span>'
+    '<span id="bal-vault-a" style="color:#059669;font-weight:600">?</span></span>'
+    '<span style="color:#6b7280">Your Wallet</span>'
+    '<span><span id="bal-wallet-b" style="color:#6b7280;font-weight:600">\u2026</span>'
+    '<span style="color:#94a3b8"> \u2192 </span>'
+    '<span id="bal-wallet-a" style="color:#059669;font-weight:600">?</span></span>'
     '</div>'
     '</div>'
 )
@@ -536,15 +575,16 @@ _VIS_EXECUTE = (
 _PAGE_CONFIGS: "dict[str, dict]" = {
     "Setup.s.sol": {
         "step": 1, "accent": "#2563eb", "accent_light": "#dbeafe",
-        "icon": "\U0001f3d7",
+        "icon": "01",
         "title": "Deploying Your Protocol",
-        "tagline": "Setting the stage \u2014 contracts going live on BattleChain testnet",
+        "tagline": "Deploying the protocol to BattleChain testnet",
         "visual": _VIS_DEPLOY,
         "narrative": (
-            "Your <strong>VulnerableVault</strong> holds protocol funds and contains an "
-            "exploitable bug \u2014 by design. The <strong>BCToken</strong> is the asset inside. "
-            "Without BattleChain, discovering this vulnerability would mean a race against "
-            "malicious actors. This demo shows the safer path."
+            "The <strong>VulnerableVault</strong> holds protocol funds and contains a deliberately "
+            "exploitable reentrancy bug. The <strong>BCToken</strong> is the asset at risk. "
+            "Without a structured engagement framework, a discovered vulnerability leaves two options: "
+            "disclose and hope, or watch a malicious actor move first. "
+            "BattleChain provides a third path \u2014 authorized, compensated recovery."
         ),
         "tx_labels": [
             "Deploying BCToken contract",
@@ -558,15 +598,16 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
     },
     "CreateAgreement.s.sol": {
         "step": 2, "accent": "#059669", "accent_light": "#d1fae5",
-        "icon": "\U0001f6e1",
+        "icon": "02",
         "title": "Establishing Safe Harbor",
-        "tagline": "Creating legal protection for ethical hackers \u2014 and your protocol",
+        "tagline": "Registering the on-chain legal framework for authorized exploitation",
         "visual": _VIS_AGREEMENT,
         "narrative": (
-            "Safe harbor turns a potential attack into a structured recovery. "
-            "<strong>Ethical hackers</strong> who find and return funds are legally protected "
-            "and paid a fair bounty. This agreement is registered on-chain \u2014 immutable, "
-            "transparent, no ambiguity. Everyone knows exactly what the deal is."
+            "Safe harbor converts a vulnerability discovery into a structured recovery engagement. "
+            "<strong>Ethical researchers</strong> who identify and return funds operate under legal "
+            "protection and receive a defined bounty. This agreement is registered on-chain \u2014 "
+            "immutable, auditable, and unambiguous. Both parties understand the exact terms "
+            "before any engagement begins."
         ),
         "tx_labels": [
             "Creating Safe Harbor agreement on-chain",
@@ -574,11 +615,11 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
             "Adopting the Safe Harbor agreement",
         ],
         "done_headline": "\u2713 Safe harbor agreement is live on-chain",
-        "done_detail":   "10% bounty \u00b7 $5M cap \u00b7 Anonymous OK. Ethical hackers are now legally protected.",
+        "done_detail":   "10% bounty \u00b7 $5M cap \u00b7 Anonymity permitted. Researchers operate under full legal protection.",
     },
     "RequestAttackMode.s.sol": {
-        "step": 3, "accent": "#dc2626", "accent_light": "#fee2e2",
-        "icon": "\u2694",
+        "step": 3, "accent": "#ea580c", "accent_light": "#ffedd5",
+        "icon": "03",
         "title": "Activating Attack Mode",
         "tagline": "Transitioning the agreement to UNDER_ATTACK — whitehat exploitation authorized",
         "visual": _VIS_ATTACK_MODE,
@@ -599,16 +640,16 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
         "done_detail":   "Request submitted and DAO-approved. The vault is ready for the whitehat.",
     },
     "Attack.s.sol": {
-        "step": 4, "accent": "#7c3aed", "accent_light": "#ede9fe",
-        "icon": "\u26a1",
+        "step": 4, "accent": "#dc2626", "accent_light": "#fee2e2",
+        "icon": "04",
         "title": "The Ethical Exploit",
-        "tagline": "Draining the vault and returning the funds under safe harbor",
+        "tagline": "Executing the reentrancy exploit and recovering funds per the safe harbor agreement",
         "visual": _VIS_EXECUTE,
         "narrative": (
-            "The whitehat exploits the <strong>VulnerableVault</strong> via reentrancy, "
-            "drains its funds, and returns them according to the safe harbor terms. "
-            "What would have been a devastating hack becomes a coordinated rescue \u2014 "
-            "both sides walk away with something."
+            "The whitehat exploits the <strong>VulnerableVault</strong> via reentrancy \u2014 "
+            "calling the withdrawal function repeatedly before the contract can update its balance. "
+            "Funds are drained and split per the safe harbor terms. "
+            "What would otherwise be a total loss becomes a structured, authorized recovery."
         ),
         "tx_labels": [
             "Deploying Attacker contract",
@@ -972,23 +1013,25 @@ server = Server("battlechain")
 
 
 DEMO_PROMPT = """\
-You have access to battlechain tools. Use them now — do not search the web or read files.
+You are guiding a non-technical user through the BattleChain security demo, step by step. \
+Use battlechain tools — do not search the web or read files.
 
-CRITICAL: All battlechain tools execute commands on the USER'S LOCAL MACHINE via MCP. \
-They do NOT run inside Claude's environment. \
-If a tool returns an error, it is an error on the user's machine — not a Claude limitation. \
+CRITICAL: All battlechain tools run on the USER'S LOCAL MACHINE via MCP — not in Claude's \
+environment. Errors returned by tools are errors on the user's machine. \
 Never say "my sandbox" or "my environment" — always say "your machine".
 
-Run the full BattleChain security demo by calling tools in this order:
-1. Call `prepare_environment` immediately to set up the user's machine.
-2. Call `deploy_contracts` (Step 1).
-3. Call `create_agreement` (Step 2).
-4. Call `request_and_approve_attack_mode` (Step 3).
-5. Call `execute_attack` (Step 4).
-6. Show a clean summary of what happened.
+YOUR JOB: Be an active, narrating guide. Before each tool call, tell the user in plain \
+English what is about to happen and why. After each tool call, explain what just happened. \
+Before each MetaMask signing step, tell the user exactly what to expect in MetaMask.
 
-After each tool call, explain what just happened in plain English — no jargon. \
-Tell the user what MetaMask will ask them to do before each signing step.\
+Run the full demo in this order — do not skip steps or wait to be asked:
+
+1. Tell the user the first step is setting up the environment, then call `prepare_environment`.
+2. Briefly explain what's being deployed (vault + token), then call `deploy_contracts`.
+3. Explain what a Safe Harbor agreement does, then call `create_agreement`.
+4. Explain what "attack mode" means as an on-chain state, then call `request_and_approve_attack_mode`.
+5. Explain the vault is about to be drained and funds recovered, then call `execute_attack`.
+6. Show a clean, exciting summary of the full demo — the vulnerability exploited, funds moved, bounty earned.\
 """
 
 
@@ -1247,12 +1290,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
         if token and vault:
             return [types.TextContent(type="text", text=(
-                "Step 1 complete!\n\n"
-                "Two smart contracts have been deployed to the BattleChain testnet:\n\n"
-                f"  MockToken (the demo currency):  {token}\n"
-                f"  VulnerableVault (the target):   {vault}\n\n"
-                "The vault has been loaded with 1,000 tokens — that's the pot we'll recover later.\n\n"
-                "Ready for Step 2: creating the Safe Harbor security agreement."
+                "Step 1 complete.\n\n"
+                "Two contracts are now live on BattleChain testnet:\n\n"
+                f"  BCToken (ERC-20 asset):        {token}\n"
+                f"  VulnerableVault (target):      {vault}\n\n"
+                "The vault holds 1,000 BCTokens — these will be recovered in Step 4.\n\n"
+                "Ready for Step 2: creating the Safe Harbor agreement."
             ))]
         return [types.TextContent(type="text", text=(
             "Deployment ran but contract addresses weren't found.\n\n" + out
