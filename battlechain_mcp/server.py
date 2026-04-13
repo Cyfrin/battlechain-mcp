@@ -202,7 +202,7 @@ hr{border:none;border-top:1px solid #f3f4f6}
 <body>
 <div class="card">
 <div class="banner">
-  <img src="/logo/cygent-wm" alt="Cygent" style="height:20px;flex-shrink:0">
+  <img src="/logo/battlechain-wm" alt="BattleChain" style="height:20px;flex-shrink:0">
   <div class="dots" style="justify-content:flex-end">PAGE_STEP_DOTS</div>
 </div>
 <div class="hero">
@@ -215,10 +215,17 @@ hr{border:none;border-top:1px solid #f3f4f6}
 <div class="sw">
   <div id="st">Connecting to MetaMask\u2026</div>
   <div id="dt"></div>
+  <div id="cta" style="display:none;margin-top:12px;padding:9px 14px;
+       background:PAGE_ACCENT_LIGHT;border-radius:7px;font-size:.84rem;
+       color:PAGE_ACCENT;font-weight:700;text-align:center">
+    \u21a9\u00a0 Close this tab and return to Claude Desktop
+  </div>
+</div>
+<span id="done-hl" style="display:none">PAGE_DONE_HEADLINE</span>
+<span id="done-dt" style="display:none">PAGE_DONE_DETAIL</span>
 <div class="footer">
   <img src="/logo/cyfrin" alt="Cyfrin">
-  <span>BattleChain &middot; a Cyfrin protocol</span>
-</div>
+  <span>BattleChain \u00b7 a Cyfrin protocol</span>
 </div>
 </div>
 <script>
@@ -371,10 +378,13 @@ hr{border:none;border-top:1px solid #f3f4f6}
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({hashes, address}),
   });
-  const addrLines = Object.entries(addresses).map(([k,v]) => k + ': ' + v).join('  |  ');
-  const hashLines = hashes.map((h,i) => 'tx'+(i+1)+': '+h).join('  |  ');
-  set('\u2713 All ' + hashes.length + ' transaction(s) in BattleChain mempool',
-      (addrLines ? 'Contracts: ' + addrLines + '  ||  ' : '') + 'Hashes: ' + hashLines, 'ok');
+  const doneHl = document.getElementById('done-hl');
+  const doneDt = document.getElementById('done-dt');
+  const headline = (doneHl && doneHl.textContent) || ('\u2713 ' + hashes.length + ' transaction(s) submitted');
+  const detail   = (doneDt && doneDt.textContent) || hashes.map((h,i) => 'tx'+(i+1)+': '+h).join(' | ');
+  set(headline, detail, 'ok');
+  const cta = document.getElementById('cta');
+  if (cta) cta.style.display = 'block';
 })();
 </script>
 </body>
@@ -514,9 +524,18 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
         "narrative": (
             "Your <strong>VulnerableVault</strong> holds protocol funds and contains an "
             "exploitable bug \u2014 by design. The <strong>BCToken</strong> is the asset inside. "
-            "Normally, discovering this bug would mean a race against malicious actors. "
-            "BattleChain gives you a better option."
+            "Without BattleChain, discovering this vulnerability would mean a race against "
+            "malicious actors. This demo shows the safer path."
         ),
+        "tx_labels": [
+            "Deploying BCToken contract",
+            "Deploying VulnerableVault contract",
+            "Minting 1,000 BCTokens to your wallet",
+            "Approving BCTokens to fund the vault",
+            "Depositing 1,000 BCTokens into the vault",
+        ],
+        "done_headline": "\u2713 Protocol deployed \u2014 vault is live on BattleChain",
+        "done_detail":   "VulnerableVault is seeded with 1,000 BCTokens and ready.",
     },
     "CreateAgreement.s.sol": {
         "step": 2, "accent": "#059669", "accent_light": "#d1fae5",
@@ -530,19 +549,33 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
             "and paid a fair bounty. This agreement is registered on-chain \u2014 immutable, "
             "transparent, no ambiguity. Everyone knows exactly what the deal is."
         ),
+        "tx_labels": [
+            "Creating Safe Harbor agreement on-chain",
+            "Setting 30-day commitment window",
+            "Adopting the Safe Harbor agreement",
+        ],
+        "done_headline": "\u2713 Safe harbor agreement is live on-chain",
+        "done_detail":   "10% bounty \u00b7 $5M cap \u00b7 Anonymous OK. Ethical hackers are now legally protected.",
     },
     "RequestAttackMode.s.sol": {
         "step": 3, "accent": "#dc2626", "accent_light": "#fee2e2",
         "icon": "\u2694",
         "title": "Activating Attack Mode",
-        "tagline": "Opening your protocol to authorized ethical exploitation",
+        "tagline": "Opening the protocol to authorized ethical exploitation",
         "visual": _VIS_ATTACK_MODE,
         "narrative": (
-            "You <strong>know</strong> about the vulnerability. Instead of waiting for a "
-            "blackhat to find it first, you\u2019re proactively inviting an ethical hacker to "
-            "exploit it safely. <em>Two transactions:</em> the first requests attack mode, "
-            "the second \u2014 the testnet DAO \u2014 immediately approves it."
+            "A vulnerability has been identified in the vault. Rather than waiting for a "
+            "malicious actor to exploit it, BattleChain enables a structured response: "
+            "authorize an ethical hacker to drain and return the funds legally. "
+            "<em>Two transactions:</em> the first requests attack mode, the second \u2014 "
+            "the testnet DAO \u2014 immediately approves it."
         ),
+        "tx_labels": [
+            "Requesting attack mode for the agreement",
+            "DAO approving the attack mode request",
+        ],
+        "done_headline": "\u2713 Attack mode active \u2014 vault is open for ethical exploitation",
+        "done_detail":   "Request submitted and DAO-approved. The vault is ready for the whitehat.",
     },
     "Attack.s.sol": {
         "step": 4, "accent": "#7c3aed", "accent_light": "#ede9fe",
@@ -551,17 +584,25 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
         "tagline": "Draining the vault and returning the funds under safe harbor",
         "visual": _VIS_EXECUTE,
         "narrative": (
-            "The whitehat exploits the <strong>VulnerableVault</strong>, drains its funds, "
-            "and sends them back according to the safe harbor terms. What would have been a "
-            "devastating hack becomes a coordinated rescue \u2014 both sides walk away whole."
+            "The whitehat exploits the <strong>VulnerableVault</strong> via reentrancy, "
+            "drains its funds, and returns them according to the safe harbor terms. "
+            "What would have been a devastating hack becomes a coordinated rescue \u2014 "
+            "both sides walk away with something."
         ),
+        "tx_labels": [
+            "Deploying Attacker contract",
+            "Executing reentrancy exploit \u2014 draining the vault",
+        ],
+        "done_headline": "\u2713 Ethical exploit complete \u2014 funds recovered under safe harbor",
+        "done_detail":   "The vault has been drained and funds returned per the agreement terms.",
     },
 }
 
 
-_LOGO_ASSETS: "dict[str, str]" = {
-    "cygent-wm": "CYGENT- wordmark - light.png",
-    "cyfrin":    "CYFRIN - logo - Color.png",
+_LOGO_ASSETS: "dict[str, tuple[str, str]]" = {
+    "battlechain-wm":   ("BattleChain.svg",          "image/svg+xml"),
+    "battlechain-mark": ("BattleChain-logomark.svg",  "image/svg+xml"),
+    "cyfrin":           ("CYFRIN - logo - Color.png", "image/png"),
 }
 
 
@@ -586,12 +627,12 @@ class _SigningHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self._send(202, "text/plain", b"")
         elif self.path.startswith("/logo/"):
-            name = self.path[6:]
-            filename = _LOGO_ASSETS.get(name)
-            if filename:
+            entry = _LOGO_ASSETS.get(self.path[6:])
+            if entry:
+                filename, ct = entry
                 asset_path = PROJECT_ROOT / "assets" / filename
                 if asset_path.exists():
-                    self._send(200, "image/png", asset_path.read_bytes())
+                    self._send(200, ct, asset_path.read_bytes())
                     return
             self._send(404, "text/plain", b"not found")
         else:
@@ -642,17 +683,20 @@ class _SigningServer(socketserver.TCPServer):
         self._lock = threading.Lock()
         super().__init__(("127.0.0.1", 0), _SigningHandler)
         port = self.server_address[1]
-        cfg = page_config or {}
+        self._page_config = page_config or {}
+        cfg = self._page_config
         html = _SIGNING_HTML.replace("CHAIN_ID_INT", CHAIN_ID)
         html = (html
-            .replace("PAGE_ACCENT_LIGHT", cfg.get("accent_light", "#dbeafe"))
-            .replace("PAGE_ACCENT",       cfg.get("accent",       "#2563eb"))
-            .replace("PAGE_STEP_DOTS",    _build_dots(cfg.get("step", 0)))
-            .replace("PAGE_ICON",         cfg.get("icon",         "\U0001f510"))
-            .replace("PAGE_TITLE",        cfg.get("title",        "Sign Transactions"))
-            .replace("PAGE_TAGLINE",      cfg.get("tagline",      "BattleChain Demo"))
-            .replace("PAGE_VISUAL",       cfg.get("visual",       ""))
-            .replace("PAGE_NARRATIVE",    cfg.get("narrative",    ""))
+            .replace("PAGE_ACCENT_LIGHT",  cfg.get("accent_light",   "#dbeafe"))
+            .replace("PAGE_ACCENT",        cfg.get("accent",          "#2563eb"))
+            .replace("PAGE_STEP_DOTS",     _build_dots(cfg.get("step", 0)))
+            .replace("PAGE_ICON",          cfg.get("icon",            "\U0001f510"))
+            .replace("PAGE_TITLE",         cfg.get("title",           "Sign Transactions"))
+            .replace("PAGE_TAGLINE",       cfg.get("tagline",         "BattleChain Demo"))
+            .replace("PAGE_VISUAL",        cfg.get("visual",          ""))
+            .replace("PAGE_NARRATIVE",     cfg.get("narrative",       ""))
+            .replace("PAGE_DONE_HEADLINE", cfg.get("done_headline",   ""))
+            .replace("PAGE_DONE_DETAIL",   cfg.get("done_detail",     ""))
         )
         self.html = html
         self.url = f"http://127.0.0.1:{port}/"
@@ -677,6 +721,11 @@ class _SigningServer(socketserver.TCPServer):
                 with self._lock:
                     self._forge_error = str(exc)
                 return
+        # Apply human-readable labels from page config
+        labels = self._page_config.get("tx_labels", [])
+        for i, label in enumerate(labels):
+            if i < len(all_txs):
+                all_txs[i]["description"] = label
         with self._lock:
             self._env_updates = all_env_updates
             self._txs = all_txs
@@ -1006,24 +1055,11 @@ async def list_tools() -> list[types.Tool]:
                 "and they have confirmed they want to proceed. "
                 "Explain to the user: the vault holds 1,000 tokens; the attack will drain it completely; "
                 "90% will be returned to their wallet as protocol recovery, 10% kept as the whitehat bounty. "
-                "Once the user confirms, call this tool with their wallet address. "
+                "The wallet address is taken from their previous signing session automatically. "
                 "Opens MetaMask signing page. Call again after signing to collect the result. "
                 "Requires Step 3 (request_and_approve_attack_mode) to be complete."
             ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "wallet_address": {
-                        "type": "string",
-                        "description": (
-                            "The user's Ethereum wallet address (starts with 0x). "
-                            "This receives both the 10% bounty and the 90% recovery. "
-                            "It must match the MetaMask wallet they will use to sign."
-                        ),
-                    }
-                },
-                "required": ["wallet_address"],
-            },
+            inputSchema={"type": "object", "properties": {}},
         ),
         types.Tool(
             name="check_agreement_state",
@@ -1266,19 +1302,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
     # ── execute_attack ────────────────────────────────────────────────────────
     elif name == "execute_attack":
-        wallet = arguments.get("wallet_address", "").strip()
-        if not wallet:
-            return [types.TextContent(type="text", text="wallet_address is required.")]
-        if not re.match(r"^0x[0-9a-fA-F]{40}$", wallet):
-            return [types.TextContent(type="text", text=(
-                f"That doesn't look like a valid wallet address: {wallet!r}\n"
-                "It should start with 0x and be 42 characters long."
-            ))]
-
         if missing_keys(["TOKEN_ADDRESS", "VAULT_ADDRESS"]):
             return [types.TextContent(type="text", text="Contracts not deployed. Run deploy_contracts first.")]
 
-        write_env_values({"SENDER_ADDRESS": wallet, "RECOVERY_ADDRESS": wallet})
+        wallet = read_env().get("SENDER_ADDRESS", "").strip()
+        if not wallet or not re.match(r"^0x[0-9a-fA-F]{40}$", wallet):
+            return [types.TextContent(type="text", text=(
+                "No wallet address on file. Please run deploy_contracts first so MetaMask "
+                "can establish your signing address."
+            ))]
+
+        write_env_values({"RECOVERY_ADDRESS": wallet})
 
         rc, out = forge_sign_with_metamask("script/Attack.s.sol")
         if rc == -1:
