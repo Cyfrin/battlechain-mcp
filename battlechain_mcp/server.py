@@ -30,11 +30,13 @@ PROJECT_ROOT     = BATTLECHAIN_DIR / "starter"
 ENV_FILE         = PROJECT_ROOT / ".env"
 FOUNDRY_BIN      = Path.home() / ".foundry" / "bin"
 
-RPC_URL         = "https://testnet.battlechain.com:3051"
+# Mirrors the canonical BattleChain testnet registry in
+# docs-battlechain/config/deployments.json — update if testnet is redeployed.
+RPC_URL         = "https://testnet.battlechain.com"
 CHAIN_ID        = "627"
 EXPLORER_API    = "https://block-explorer-api.testnet.battlechain.com/api"
-ATTACK_REGISTRY = "0x9E62988ccA776ff6613Fa68D34c9AB5431Ce57e1"
-MOCK_MODERATOR  = "0x1bC64E6F187a47D136106784f4E9182801535BD3"
+ATTACK_REGISTRY = "0x22134e878c409a0Eab7259d873b38e26Ca966d3C"
+MOCK_MODERATOR  = "0x3DdA228A38b4d7438bBF5D5137c8D1090DcaF6bF"
 
 AGREEMENT_STATES = {
     "0": "UNREGISTERED",
@@ -256,7 +258,7 @@ hr{border:none;border-top:1px solid #f3f4f6}
   const address = accounts[0];
 
   // 1b. Verify MetaMask chainId matches BattleChain directly
-  const RPC_URL = 'https://testnet.battlechain.com:3051';
+  const RPC_URL = 'https://testnet.battlechain.com';
   const bcRpc = (method, params) => fetch(RPC_URL, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', method, params: params || [], id: 1}),
@@ -282,7 +284,7 @@ hr{border:none;border-top:1px solid #f3f4f6}
           params: [{
             chainId: chainHex,
             chainName: 'BattleChain Testnet',
-            rpcUrls: ['https://testnet.battlechain.com:3051'],
+            rpcUrls: ['https://testnet.battlechain.com'],
             nativeCurrency: {name: 'ETH', symbol: 'ETH', decimals: 18},
             blockExplorerUrls: ['https://explorer.testnet.battlechain.com'],
           }],
@@ -379,7 +381,7 @@ hr{border:none;border-top:1px solid #f3f4f6}
     }
     if (!onChain) {
       set('\u26a0 TX ' + (i+1) + ' not in BattleChain mempool',
-          'Hash: ' + hash + ' — MetaMask returned a hash but tx is NOT at testnet.battlechain.com:3051. ' +
+          'Hash: ' + hash + ' — MetaMask returned a hash but tx is NOT at testnet.battlechain.com. ' +
           'MetaMask is likely using a different RPC for chain 627. ' +
           'Check MetaMask Settings \u2192 Networks \u2192 BattleChain RPC URL.', 'err');
       return;
