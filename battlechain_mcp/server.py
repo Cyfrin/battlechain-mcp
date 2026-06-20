@@ -579,7 +579,7 @@ _VIS_EXECUTE = (
 )
 
 _PAGE_CONFIGS: "dict[str, dict]" = {
-    "Setup.s.sol": {
+    "DeployProtocol.s.sol": {
         "step": 1, "accent": "#2563eb", "accent_light": "#dbeafe",
         "icon": "01",
         "title": "Deploying Your Protocol",
@@ -593,16 +593,12 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
             "BattleChain provides a third path \u2014 authorized, compensated recovery."
         ),
         "tx_labels": [
-            "Deploying BCToken contract",
-            "Deploying VulnerableVault contract",
-            "Minting 1,000 BCTokens to your wallet",
-            "Approving BCTokens to fund the vault",
-            "Depositing 1,000 BCTokens into the vault",
+            "Deploying VulnerableVault (it deploys + seeds its own token with 1,000 tokens)",
         ],
         "done_headline": "\u2713 Protocol deployed \u2014 vault is live on BattleChain",
         "done_detail":   "VulnerableVault is seeded with 1,000 BCTokens and ready.",
     },
-    "CreateAgreement.s.sol": {
+    "McpCreateAgreement.s.sol": {
         "step": 2, "accent": "#059669", "accent_light": "#d1fae5",
         "icon": "02",
         "title": "Establishing Safe Harbor",
@@ -617,7 +613,7 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
         ),
         "tx_labels": [
             "Creating Safe Harbor agreement on-chain",
-            "Setting 30-day commitment window",
+            "Locking the agreement's commitment window",
             "Adopting the Safe Harbor agreement",
         ],
         "done_headline": "\u2713 Safe harbor agreement is live on-chain",
@@ -645,7 +641,7 @@ _PAGE_CONFIGS: "dict[str, dict]" = {
         "done_headline": "\u2713 Attack mode active \u2014 vault is open for ethical exploitation",
         "done_detail":   "Request submitted and DAO-approved. The vault is ready for the whitehat.",
     },
-    "Attack.s.sol": {
+    "McpAttack.s.sol": {
         "step": 4, "accent": "#dc2626", "accent_light": "#fee2e2",
         "icon": "04",
         "title": "The Ethical Exploit",
@@ -1285,7 +1281,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 "Skipping. Call create_agreement to continue."
             ))]
 
-        rc, out = forge_sign_with_metamask("script/Setup.s.sol")
+        rc, out = forge_sign_with_metamask("script/DeployProtocol.s.sol")
         if rc == -1:
             return _needs_signing(out)
         if rc != 0:
@@ -1320,7 +1316,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
                 "Skipping. Call request_and_approve_attack_mode to continue."
             ))]
 
-        rc, out = forge_sign_with_metamask("script/CreateAgreement.s.sol")
+        rc, out = forge_sign_with_metamask("script/McpCreateAgreement.s.sol")
         if rc == -1:
             return _needs_signing(out)
         if rc != 0:
@@ -1386,7 +1382,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextCont
 
         write_env_values({"RECOVERY_ADDRESS": wallet})
 
-        rc, out = forge_sign_with_metamask("script/Attack.s.sol")
+        rc, out = forge_sign_with_metamask("script/McpAttack.s.sol")
         if rc == -1:
             return _needs_signing(out)
         if rc != 0:
