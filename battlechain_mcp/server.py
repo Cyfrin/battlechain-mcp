@@ -30,13 +30,44 @@ PROJECT_ROOT     = BATTLECHAIN_DIR / "starter"
 ENV_FILE         = PROJECT_ROOT / ".env"
 FOUNDRY_BIN      = Path.home() / ".foundry" / "bin"
 
-# Mirrors the canonical BattleChain testnet registry in
-# docs-battlechain/config/deployments.json — update if testnet is redeployed.
-RPC_URL         = "https://testnet.battlechain.com"
-CHAIN_ID        = "627"
-EXPLORER_API    = "https://block-explorer-api.testnet.battlechain.com/api"
-ATTACK_REGISTRY = "0x22134e878c409a0Eab7259d873b38e26Ca966d3C"
-MOCK_MODERATOR  = "0x3DdA228A38b4d7438bBF5D5137c8D1090DcaF6bF"
+# Network addresses come from a vendored copy of the canonical deployments.json
+# published by Cyfrin/battlechain-lib. Refresh it with scripts/sync_deployments.py
+# (run after a testnet redeploy) so changes land as a reviewable diff.
+
+CHAIN_ID = "627"  # BattleChain testnet — the network this demo targets
+
+_DEPLOYMENTS_FILE = Path(__file__).resolve().parent / "deployments.json"
+
+
+def _load_deployments() -> dict:
+    """Return deployments.json["networks"] from the vendored copy."""
+    return json.loads(_DEPLOYMENTS_FILE.read_text())["networks"]
+
+
+def _resolve_deployment(networks: dict, chain_id: str) -> dict:
+    """Flatten one chain's entry into the constants this server uses.
+
+    RPC and explorer URLs are not in deployments.json; they follow the
+    battlechain-lib README convention https://<network>.battlechain.com.
+    """
+    net = networks[chain_id]
+    network_name = "testnet" if chain_id == "627" else "mainnet"
+    return {
+        "rpc_url": f"https://{network_name}.battlechain.com",
+        "explorer_web": f"https://explorer.{network_name}.battlechain.com",
+        "explorer_api": f"https://block-explorer-api.{network_name}.battlechain.com/api",
+        "attack_registry": net["attackRegistry"],
+        # testnet uses a mock moderator; mainnet a real one
+        "moderator": net.get("mockRegistryModerator") or net.get("registryModerator"),
+    }
+
+
+_DEPLOYMENT     = _resolve_deployment(_load_deployments(), CHAIN_ID)
+RPC_URL         = _DEPLOYMENT["rpc_url"]
+EXPLORER_WEB    = _DEPLOYMENT["explorer_web"]
+EXPLORER_API    = _DEPLOYMENT["explorer_api"]
+ATTACK_REGISTRY = _DEPLOYMENT["attack_registry"]
+MOCK_MODERATOR  = _DEPLOYMENT["moderator"]
 
 AGREEMENT_STATES = {
     "0": "UNREGISTERED",
@@ -258,7 +289,7 @@ hr{border:none;border-top:1px solid #f3f4f6}
   const address = accounts[0];
 
   // 1b. Verify MetaMask chainId matches BattleChain directly
-  const RPC_URL = 'https://testnet.battlechain.com';
+  const RPC_URL = 'RPC_URL_PLACEHOLDER';
   const bcRpc = (method, params) => fetch(RPC_URL, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({jsonrpc: '2.0', method, params: params || [], id: 1}),
@@ -284,9 +315,9 @@ hr{border:none;border-top:1px solid #f3f4f6}
           params: [{
             chainId: chainHex,
             chainName: 'BattleChain Testnet',
-            rpcUrls: ['https://testnet.battlechain.com'],
+            rpcUrls: ['RPC_URL_PLACEHOLDER'],
             nativeCurrency: {name: 'ETH', symbol: 'ETH', decimals: 18},
-            blockExplorerUrls: ['https://explorer.testnet.battlechain.com'],
+            blockExplorerUrls: ['EXPLORER_WEB_PLACEHOLDER'],
           }],
         });
       } catch(e2) {
@@ -412,7 +443,7 @@ hr{border:none;border-top:1px solid #f3f4f6}
   const headline = (doneHl && doneHl.textContent) || ('\u2713 ' + hashes.length + ' transaction(s) submitted');
   let detail = (doneDt && doneDt.textContent) || hashes.map((h,i) => 'tx'+(i+1)+': '+h).join(' | ');
   // Append truncated explorer links for known contract addresses
-  const explorerBase = 'https://explorer.testnet.battlechain.com/address/';
+  const explorerBase = 'EXPLORER_WEB_PLACEHOLDER/address/';
   const addrLabels = {TOKEN_ADDRESS:'BCToken',VAULT_ADDRESS:'VulnerableVault',AGREEMENT_ADDRESS:'Agreement',SENDER_ADDRESS:'Your Wallet'};
   const addrLinks = Object.entries(addresses)
     .filter(([k,v]) => v && /^0x[0-9a-fA-F]{40}$/.test(v) && addrLabels[k])
@@ -750,7 +781,10 @@ class _SigningServer(socketserver.TCPServer):
         port = self.server_address[1]
         self._page_config = page_config or {}
         cfg = self._page_config
-        html = _SIGNING_HTML.replace("CHAIN_ID_INT", CHAIN_ID)
+        html = (_SIGNING_HTML
+            .replace("CHAIN_ID_INT", CHAIN_ID)
+            .replace("RPC_URL_PLACEHOLDER", RPC_URL)
+            .replace("EXPLORER_WEB_PLACEHOLDER", EXPLORER_WEB))
         html = (html
             .replace("PAGE_ACCENT_LIGHT",  cfg.get("accent_light",   "#dbeafe"))
             .replace("PAGE_ACCENT",        cfg.get("accent",          "#2563eb"))
