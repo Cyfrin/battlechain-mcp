@@ -1,0 +1,56 @@
+name: Deployments drift check
+
+# Keeps the vendored battlechain_mcp/deployments.json in sync with the canonical
+# data in Cyfrin/battlechain-lib. Addresses stay pinned and human-reviewed: drift
+# is surfaced (PR check failure, or an auto-opened refresh PR) rather than applied
+# silently.
+
+on:
+  # Surface drift detected upstream as a reviewable PR.
+  schedule:
+    - cron: "0 6 * * 1"  # Mondays 06:00 UTC
+  workflow_dispatch:
+  # Guard against hand-edits that diverge from the script's deterministic output.
+  pull_request:
+    paths:
+      - "battlechain_mcp/deployments.json"
+      - "scripts/sync_deployments.py"
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify vendored deployments.json matches upstream
+        run: python3 scripts/sync_deployments.py --check
+
+  refresh:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Sync vendored deployments.json
+        run: python3 scripts/sync_deployments.py
+      - name: Open a PR if it drifted
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/sync-deployments
+          title: "chore: sync vendored deployments.json from battlechain-lib"
+          commit-message: "chore: sync vendored deployments.json from battlechain-lib"
+          body: |
+            Automated refresh of `battlechain_mcp/deployments.json` from
+            [Cyfrin/battlechain-lib](https://github.com/Cyfrin/battlechain-lib).
+
+            Review the address changes before merging — these determine where the
+            MCP points users' transactions.
+          add-paths: battlechain_mcp/deployments.json
