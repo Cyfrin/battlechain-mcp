@@ -30,11 +30,12 @@ PROJECT_ROOT     = BATTLECHAIN_DIR / "starter"
 ENV_FILE         = PROJECT_ROOT / ".env"
 FOUNDRY_BIN      = Path.home() / ".foundry" / "bin"
 
-# Network addresses come from a vendored copy of the canonical deployments.json
-# published by Cyfrin/battlechain-lib. Refresh it with scripts/sync_deployments.py
-# (run after a testnet redeploy) so changes land as a reviewable diff.
+# This server targets the BattleChain testnet exclusively. Addresses come from a
+# vendored, testnet-only subset of the canonical deployments.json published by
+# Cyfrin/battlechain-lib. Refresh it with scripts/sync_deployments.py (run after a
+# testnet redeploy) so changes land as a reviewable diff.
 
-CHAIN_ID = "627"  # BattleChain testnet — the network this demo targets
+CHAIN_ID = "627"  # BattleChain testnet
 
 _DEPLOYMENTS_FILE = Path(__file__).resolve().parent / "deployments.json"
 
@@ -45,20 +46,18 @@ def _load_deployments() -> dict:
 
 
 def _resolve_deployment(networks: dict, chain_id: str) -> dict:
-    """Flatten one chain's entry into the constants this server uses.
+    """Flatten the testnet chain entry into the constants this server uses.
 
     RPC and explorer URLs are not in deployments.json; they follow the
-    battlechain-lib README convention https://<network>.battlechain.com.
+    battlechain-lib README convention https://testnet.battlechain.com.
     """
     net = networks[chain_id]
-    network_name = "testnet" if chain_id == "627" else "mainnet"
     return {
-        "rpc_url": f"https://{network_name}.battlechain.com",
-        "explorer_web": f"https://explorer.{network_name}.battlechain.com",
-        "explorer_api": f"https://block-explorer-api.{network_name}.battlechain.com/api",
+        "rpc_url": "https://testnet.battlechain.com",
+        "explorer_web": "https://explorer.testnet.battlechain.com",
+        "explorer_api": "https://block-explorer-api.testnet.battlechain.com/api",
         "attack_registry": net["attackRegistry"],
-        # testnet uses a mock moderator; mainnet a real one
-        "moderator": net.get("mockRegistryModerator") or net.get("registryModerator"),
+        "moderator": net["mockRegistryModerator"],
     }
 
 
